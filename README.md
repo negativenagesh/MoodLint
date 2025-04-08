@@ -1,6 +1,20 @@
-# moodlint README
+<div>
 
-This is the README for your extension "moodlint". After writing up a brief description, we recommend including the following sections.
+<div align="center">
+    <h1>MoodLint</h1>
+    <p>Emotion-Based Debugging Extension for Visual Studio Code</p>
+</div>
+</div>
+
+<div align="center">
+  
+![GitHub stars](https://img.shields.io/github/stars/negativenagesh/MoodLint?style=social)
+![GitHub watchers](https://img.shields.io/github/watchers/negativenagesh/MoodLint?style=social)
+![GitHub forks](https://img.shields.io/github/forks/negativenagesh/MoodLint?style=social)
+![GitHub license](https://img.shields.io/github/license/negativenagesh/MoodLint)
+</div>
+
+Welcome to the **MoodLint**, MoodLint is a groundbreaking Visual Studio Code extension that transforms the debugging experience by integrating real-time emotion analysis. Designed for developers who face the emotional ups and downs of coding, MoodLint leverages deep learning to detect your emotional state—whether you're frustrated, focused, or fatigued—and provides tailored debugging suggestions to boost productivity and maintain well-being. The project architecture, illustrated below, ensures a robust, scalable foundation for this innovative tool.
 
 ## Features
 
