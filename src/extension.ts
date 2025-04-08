@@ -1,25 +1,113 @@
-// The module 'vscode' contains the VS Code extensibility API
-// Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode';
+import * as path from 'path';
+import { getWebviewContent } from './webviewContent';
+
+// Panel tracking variables
+let moodlintPanel: vscode.WebviewPanel | undefined = undefined;
+
+/**
+ * Manages MoodLint webview panels
+ */
+function createMoodlintPanel(context: vscode.ExtensionContext) {
+    // If we already have a panel, show it
+    if (moodlintPanel) {
+        moodlintPanel.reveal(vscode.ViewColumn.One);
+        return;
+    }
+
+    // Otherwise, create a new panel
+    moodlintPanel = vscode.window.createWebviewPanel(
+        'moodlintPanel',
+        'MoodLint',
+        vscode.ViewColumn.One,
+        {
+            enableScripts: true,
+            retainContextWhenHidden: true,
+            localResourceRoots: [
+                vscode.Uri.file(path.join(context.extensionPath, 'media'))
+            ]
+        }
+    );
+
+    // Get paths to media files
+    const stylesPath = vscode.Uri.file(
+        path.join(context.extensionPath, 'media', 'styles.css')
+    );
+    const stylesUri = moodlintPanel.webview.asWebviewUri(stylesPath);
+    
+    const scriptPath = vscode.Uri.file(
+        path.join(context.extensionPath, 'media', 'main.js')
+    );
+    const scriptUri = moodlintPanel.webview.asWebviewUri(scriptPath);
+
+    // Set panel HTML content
+    moodlintPanel.webview.html = getWebviewContent(stylesUri, scriptUri);
+
+    // Reset panel variable when panel is closed
+    moodlintPanel.onDidDispose(
+        () => {
+            moodlintPanel = undefined;
+        },
+        null,
+        context.subscriptions
+    );
+
+    // Handle messages from the webview
+    moodlintPanel.webview.onDidReceiveMessage(
+        message => {
+            switch (message.command) {
+                case 'analyze':
+                    vscode.window.showInformationMessage(`Analyzing with mood: ${message.mood}`);
+                    // Here you would call your actual analysis logic
+                    analyzeWithMood(message.mood, message.options);
+                    return;
+            }
+        },
+        undefined,
+        context.subscriptions
+    );
+}
+
+/**
+ * Perform the analysis based on the selected mood and options
+ */
+function analyzeWithMood(mood: string, options: any) {
+    // Placeholder for actual analysis logic
+    console.log(`Analyzing with mood: ${mood}`);
+    console.log('Options:', options);
+    
+    // In a real implementation, you would:
+    // 1. Get the active editor content
+    // 2. Run analysis based on mood
+    // 3. Return results to the webview
+    
+    // Example of sending message back to webview (if implemented)
+    if (moodlintPanel) {
+        setTimeout(() => {
+            moodlintPanel?.webview.postMessage({
+                command: 'analysisComplete',
+                results: {
+                    mood: mood,
+                    issues: [
+                        { line: 10, message: 'This code looks sad', severity: 'info' },
+                        { line: 25, message: 'Consider refactoring', severity: 'warning' }
+                    ]
+                }
+            });
+        }, 2000); // Simulate processing time
+    }
+}
 
 // This method is called when your extension is activated
-// Your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
+    console.log('Congratulations, your extension "moodlint" is now active!');
 
-	// Use the console to output diagnostic information (console.log) and errors (console.error)
-	// This line of code will only be executed once when your extension is activated
-	console.log('Congratulations, your extension "moodlint" is now active!');
+    // Register the command to open the MoodLint panel
+    const disposable = vscode.commands.registerCommand('moodlint.helloWorld', () => {
+        createMoodlintPanel(context);
+    });
 
-	// The command has been defined in the package.json file
-	// Now provide the implementation of the command with registerCommand
-	// The commandId parameter must match the command field in package.json
-	const disposable = vscode.commands.registerCommand('moodlint.helloWorld', () => {
-		// The code you place here will be executed every time your command is executed
-		// Display a message box to the user
-		vscode.window.showInformationMessage('Hello World from MoodLint!');
-	});
-
-	context.subscriptions.push(disposable);
+    context.subscriptions.push(disposable);
 }
 
 // This method is called when your extension is deactivated
