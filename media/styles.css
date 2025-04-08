@@ -1,0 +1,298 @@
+/* MoodLint Styles */
+
+/* --- Global Styles --- */
+:root {
+    --primary-color: var(--vscode-button-background);
+    --primary-hover-color: var(--vscode-button-hoverBackground);
+    --text-color: var(--vscode-editor-foreground);
+    --background-color: var(--vscode-editor-background);
+    --border-color: var(--vscode-panel-border);
+    --section-bg-color: var(--vscode-editor-inactiveSelectionBackground);
+    --section-header-color: var(--vscode-panelTitle-activeForeground);
+    --section-border-radius: 8px;
+    --spacing-unit: 16px;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body, html {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+    color: var(--text-color);
+    background-color: var(--background-color);
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+}
+
+/* --- Layout --- */
+.app-container {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    width: 100vw;
+    overflow: hidden;
+}
+
+.app-header {
+    padding: var(--spacing-unit);
+    border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
+}
+
+.app-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--spacing-unit);
+}
+
+.app-footer {
+    padding: calc(var(--spacing-unit) / 2) var(--spacing-unit);
+    border-top: 1px solid var(--border-color);
+    text-align: center;
+    font-size: 12px;
+    flex-shrink: 0;
+}
+
+/* --- Typography --- */
+h1 {
+    font-size: 28px;
+    margin-bottom: 8px;
+}
+
+h2 {
+    font-size: 18px;
+    margin-bottom: 16px;
+    color: var(--section-header-color);
+}
+
+.header-subtitle {
+    opacity: 0.8;
+    font-size: 14px;
+}
+
+/* --- Sections --- */
+section {
+    margin-bottom: calc(var(--spacing-unit) * 2);
+    background-color: var(--section-bg-color);
+    padding: var(--spacing-unit);
+    border-radius: var(--section-border-radius);
+}
+
+/* --- Mood Selector --- */
+.mood-selector-section {
+    text-align: center;
+}
+
+.mood-options {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: var(--spacing-unit);
+    margin-top: var(--spacing-unit);
+}
+
+.mood-option {
+    width: 160px;
+    padding: calc(var(--spacing-unit) * 1.5);
+    border-radius: var(--section-border-radius);
+    background-color: var(--background-color);
+    border: 1px solid var(--border-color);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: center;
+}
+
+.mood-option:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    border-color: var(--primary-color);
+}
+
+.mood-option.selected {
+    background-color: var(--primary-color);
+    color: var(--vscode-button-foreground);
+    border-color: var(--primary-color);
+    transform: translateY(-3px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.mood-icon {
+    font-size: 32px;
+    margin-bottom: calc(var(--spacing-unit) / 2);
+}
+
+.mood-label {
+    font-weight: bold;
+    margin-bottom: 8px;
+}
+
+.mood-description {
+    font-size: 12px;
+    opacity: 0.8;
+}
+
+/* --- Settings Section --- */
+.settings-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-unit);
+}
+
+.settings-column {
+    flex: 1;
+    min-width: 200px;
+}
+
+.settings-item {
+    display: flex;
+    align-items: center;
+    margin-bottom: 12px;
+    cursor: pointer;
+}
+
+.settings-item label {
+    margin-left: 8px;
+    cursor: pointer;
+}
+
+/* --- Buttons --- */
+.actions-section {
+    display: flex;
+    justify-content: center;
+}
+
+.primary-button {
+    background-color: var(--primary-color);
+    color: var(--vscode-button-foreground);
+    border: none;
+    padding: 12px 24px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 16px;
+    font-weight: 500;
+    transition: all 0.2s;
+}
+
+.primary-button:hover {
+    background-color: var(--primary-hover-color);
+    transform: translateY(-2px);
+}
+
+.primary-button:active {
+    transform: translateY(0);
+}
+
+/* --- Status Section --- */
+.status-section {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.status-indicator {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background-color: #888;
+}
+
+.status-indicator.ready {
+    background-color: #4CAF50;
+}
+
+.status-indicator.busy {
+    background-color: #FF9800;
+    animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+    0% { opacity: 0.6; }
+    50% { opacity: 1; }
+    100% { opacity: 0.6; }
+}
+
+/* --- Results Section --- */
+.results-section {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.results-summary {
+    display: flex;
+    justify-content: space-around;
+    margin-bottom: var(--spacing-unit);
+    padding-bottom: var(--spacing-unit);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.summary-item {
+    text-align: center;
+}
+
+.summary-count {
+    display: block;
+    font-size: 28px;
+    font-weight: bold;
+    margin-bottom: 4px;
+}
+
+.summary-label {
+    font-size: 14px;
+    opacity: 0.8;
+}
+
+.results-list {
+    padding: 0 8px;
+}
+
+.result-item {
+    padding: 12px;
+    margin-bottom: 8px;
+    border-radius: 4px;
+    border-left: 4px solid transparent;
+}
+
+.result-item.error {
+    background-color: rgba(255, 99, 71, 0.1);
+    border-left-color: tomato;
+}
+
+.result-item.warning {
+    background-color: rgba(255, 166, 0, 0.1);
+    border-left-color: orange;
+}
+
+.result-item.info {
+    background-color: rgba(100, 149, 237, 0.1);
+    border-left-color: cornflowerblue;
+}
+
+.result-location {
+    font-size: 12px;
+    opacity: 0.7;
+    margin-bottom: 4px;
+}
+
+.result-message {
+    font-size: 14px;
+}
+
+/* Media queries for responsiveness */
+@media (max-width: 768px) {
+    .mood-options {
+        gap: 10px;
+    }
+    
+    .mood-option {
+        width: 130px;
+        padding: 16px;
+    }
+    
+    .mood-icon {
+        font-size: 24px;
+    }
+}
