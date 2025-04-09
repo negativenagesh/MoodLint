@@ -16,47 +16,26 @@
 ![GitHub license](https://img.shields.io/github/license/negativenagesh/MoodLint)
 </div>
 
-Welcome to the **MoodLint**! MoodLint is a groundbreaking Visual Studio Code extension that revolutionizes debugging by integrating real-time emotion analysis with advanced visualization capabilities. Designed for developers navigating the emotional highs and lows of coding, MoodLint uses machine learning to detect your emotional state—whether you're frustrated, focused, or fatigued—and provides tailored debugging suggestions. Additionally, it leverages a Generative Adversarial Network (GAN) to generate artistic visualizations of your code structure, enhancing understanding with fun, animated graphs. The project architecture, illustrated below, ensures a robust, scalable foundation for this innovative tool.
-
-The attached project architecture image reveals a well-organized structure within the `MOODLINT` root folder:
-- **`.vscode`**: Contains configuration files like `launch.json` and `tasks.json` for debugging and task automation.
-- **`media`**: Houses subfolders `images` (for assets like screenshots) and `styles.css` (for webview styling).
-- **`node_modules`**: Stores installed dependencies for the extension.
-- **`out`**: Holds compiled output files generated during the build process.
-- **`src`**: Contains source files such as `extension.js`, `extension.js.map`, `webviewContent.js`, and `webviewContent.js.map`.
-- **`test`**: Includes test files like `extension.test.ts`, `extension.ts`, and `webviewContent.ts`.
-- **Configuration Files**: Includes `.gitignore`, `.vscodeignore`, `CHANGELOG.md`, `.eslintrc.json`, `LICENSE`, `package-lock.json`, `package.json`, `README.md`, `tsconfig.json`, and `vscode-extension-quickstart.md`.
+Welcome to the **MoodLint**! MoodLint is a Visual Studio Code extension that helps in debugging by integrating real-time emotion analysis with advanced visualization capabilities. Designed for developers navigating the emotional highs and lows of coding, MoodLint uses deep learning to detect your emotional state—whether you're frustrated, focused, or fatigued—and provides tailored debugging suggestions. Additionally, it leverages a Generative Adversarial Network (GAN) to generate artistic visualizations of your code structure, enhancing understanding with fun, animated graphs.
 
 ## Features
 
 MoodLint redefines debugging and code comprehension by aligning technical assistance with your emotional state and visual learning preferences. Below are its core features, each accompanied by detailed descriptions and placeholders for illustrative screenshots:
 
 - **Emotion Detection**
-  - **Description**: MoodLint employs machine learning models running on a local Python server to analyze your webcam feed or typing patterns, detecting emotions such as frustration, focus, or relaxation in real time. This feature forms the backbone of MoodLint's ability to adapt debugging support to your current mood.
-  - *Screenshot*: `![Emotion Detection](images/emotion-detection.png)`
-  - *Details*: The screenshot highlights the emotion detection interface, featuring a real-time mood indicator that updates as you code.
+  - **Description**: MoodLint employs Deep learning model to analyze your webcam feed or typing patterns, detecting emotions such as frustration, focus, or relaxation in real time. This feature forms the backbone of MoodLint's ability to adapt debugging support to your current mood.
 
 - **Tailored Debugging Suggestions**
   - **Description**: Based on your detected emotional state, MoodLint offers personalized debugging tips. For example, if frustration is sensed, it might suggest simplifying a complex function or stepping away briefly, while a focused state could prompt deeper code optimization recommendations.
-  - *Screenshot*: `![Debugging Suggestions](images/debugging-suggestions.png)`
-  - *Details*: This image shows a pop-up notification with context-aware debugging advice, seamlessly integrated into the VSCode editor.
 
 - **Mood Dashboard**
   - **Description**: A visual tool displaying your emotional trends over time, helping you identify patterns (e.g., frequent frustration during late-night coding) and adjust your habits for better productivity and mental health.
-  - *Screenshot*: `![Mood Dashboard](images/mood-dashboard.png)`
-  - *Details*: The screenshot illustrates the dashboard, with graphs and summaries of your emotional state during coding sessions.
 
 - **Integration with VSCode Debugger**
   - **Description**: MoodLint enhances VSCode’s native debugging tools by overlaying emotion-driven insights, such as highlighting error-prone areas when stress is detected, making debugging more intuitive and effective.
-  - *Screenshot*: `![Debugger Integration](images/debugger-integration.png)`
-  - *Details*: This image demonstrates how MoodLint annotates breakpoints and error messages with mood-based suggestions.
 
 - **Graph/Visualization Generation Using GAN**
   - **Description**: MoodLint incorporates a GAN trained from scratch to generate artistic, animated visualizations of your code structure (e.g., flowcharts or abstract syntax trees). Users can trigger this feature with a button, receiving two unique, stylized graphs that enhance code comprehension. The GAN learns from artistic datasets, applying styles like impressionism or abstract patterns to static graphs parsed from your code.
-  - *Screenshot*: `![GAN Visualization](images/gan-visualization.png)`
-  - *Details*: This screenshot showcases two animated graphs generated from a sample code snippet, styled with vibrant GAN-produced textures.
-
-> **Tip**: To fully showcase MoodLint’s capabilities, include animations in the `media/images/animations` folder (e.g., `emotion-tracking.gif` or `gan-animation.gif`). Short, focused animations can vividly demonstrate real-time emotion detection, suggestion delivery, and GAN-generated visualizations. Ensure all image paths are relative to this README (e.g., `images/feature-x.png`) and stored in the `media/images` folder as per the project architecture.
 
 ## Requirements
 
@@ -79,14 +58,6 @@ To harness MoodLint’s full potential, ensure your environment meets the follow
     ```bash
     pip install fastapi uvicorn opencv-python deepface tensorflow numpy pillow graphviz
 
-## Requirements
-
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
-
-## Extension Settings
-
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
-
 For example:
 
 This extension contributes the following settings:
@@ -94,13 +65,7 @@ This extension contributes the following settings:
 * `myExtension.enable`: Enable/disable this extension.
 * `myExtension.thing`: Set to `blah` to do something.
 
-## Known Issues
-
-Calling out known issues can help limit users opening duplicate issues against your extension.
-
 ## Release Notes
-
-Users appreciate release notes as you update your extension.
 
 ### 1.0.0
 
