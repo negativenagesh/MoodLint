@@ -18,6 +18,10 @@
 
 Welcome to the **MoodLint**! MoodLint is a Visual Studio Code extension that helps in debugging by integrating real-time emotion analysis with advanced visualization capabilities. Designed for developers navigating the emotional highs and lows of coding, MoodLint uses deep learning to detect your emotional state—whether you're frustrated, focused, or fatigued—and provides tailored debugging suggestions. Additionally, it leverages a Generative Adversarial Network (GAN) to generate artistic visualizations of your code structure, enhancing understanding with fun, animated graphs.
 
+Why MoodLint exist?
+
+https://link.springer.com/article/10.1007/s10111-010-0164-1
+
 ## Features
 
 MoodLint redefines debugging and code comprehension by aligning technical assistance with your emotional state and visual learning preferences. Below are its core features, each accompanied by detailed descriptions and placeholders for illustrative screenshots:
