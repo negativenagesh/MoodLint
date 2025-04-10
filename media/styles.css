@@ -296,3 +296,153 @@ section {
         font-size: 24px;
     }
 }
+
+.mood-detector-section {
+    text-align: center;
+}
+
+.camera-container {
+    margin: var(--spacing-unit) auto;
+    width: 320px;
+    height: 240px;
+    background-color: var(--background-color);
+    border: 1px solid var(--border-color);
+    border-radius: var(--section-border-radius);
+    overflow: hidden;
+    position: relative;
+}
+
+.camera-placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.1);
+}
+
+.camera-icon {
+    font-size: 48px;
+    margin-bottom: calc(var(--spacing-unit) / 2);
+}
+
+.mood-status {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: var(--spacing-unit) 0;
+}
+
+.detected-mood {
+    font-size: 18px;
+    font-weight: bold;
+}
+
+.confidence {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.confidence-label {
+    min-width: 80px;
+    text-align: right;
+}
+
+.confidence-bar-container {
+    flex: 1;
+    height: 8px;
+    background-color: var(--background-color);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.confidence-bar {
+    height: 100%;
+    background-color: var(--primary-color);
+    width: 0%;
+    transition: width 0.5s ease;
+}
+
+.camera-actions {
+    margin-top: var(--spacing-unit);
+}
+
+video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.permission-pending .camera-placeholder {
+    background-color: rgba(255, 166, 0, 0.1);
+}
+
+.permission-pending .camera-icon {
+    animation: pulse 1.5s infinite;
+}
+
+.permission-denied .camera-placeholder {
+    background-color: rgba(255, 99, 71, 0.1);
+}
+
+.permission-granted .camera-placeholder {
+    background-color: rgba(100, 149, 237, 0.1);
+}
+
+.mood-confidence {
+    margin-top: 10px;
+    transition: all 0.3s ease;
+}
+
+/* Style for camera placeholder during initialization */
+.camera-placeholder.initializing {
+    background-color: rgba(0, 0, 0, 0.05);
+    animation: pulse 1.5s infinite;
+}
+
+/* Make sure camera feed fits properly */
+#camera-feed {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.camera-initializing .camera-placeholder {
+    background-color: rgba(100, 149, 237, 0.1);
+}
+
+.camera-initializing .camera-icon {
+    animation: pulse 1.5s infinite;
+}
+
+/* Disable button styling */
+.primary-button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+}
+
+/* Camera feed border when active */
+#camera-feed.active {
+    border: 2px solid var(--primary-color);
+}
+
+/* Additional animation for loading states */
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.loading-spinner {
+    width: 20px;
+    height: 20px;
+    border: 3px solid rgba(255,255,255,0.3);
+    border-radius: 50%;
+    border-top-color: var(--primary-color);
+    animation: spin 1s linear infinite;
+    display: inline-block;
+    margin-right: 8px;
+    vertical-align: middle;
+}
