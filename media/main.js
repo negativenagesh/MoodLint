@@ -1,191 +1,278 @@
-// MoodLint Main Script
-
 (function() {
-    // Initialize state
-    const state = {
-        selectedMood: null,
-        analyzing: false,
-        results: []
-    };
-    
-    // Get elements
-    const moodOptions = document.querySelectorAll('.mood-option');
+    // DOM elements
+    const cameraFeed = document.getElementById('camera-feed');
+    const debugCanvas = document.getElementById('debug-canvas');
+    const cameraPlaceholder = document.getElementById('camera-placeholder');
+    const enableCameraBtn = document.getElementById('enable-camera-btn');
     const analyzeBtn = document.getElementById('analyze-btn');
-    const statusSection = document.querySelector('.status-section');
     const statusIndicator = document.querySelector('.status-indicator');
     const statusMessage = document.querySelector('.status-message');
-    const resultsSection = document.querySelector('.results-section');
+    const currentMoodDisplay = document.getElementById('current-mood-display');
+    const confidenceBar = document.getElementById('confidence-bar');
+    const moodConfidenceSection = document.querySelector('.mood-confidence');
     const resultsList = document.getElementById('results-list');
-    const errorsCount = document.getElementById('errors-count');
-    const warningsCount = document.getElementById('warnings-count');
-    const suggestionsCount = document.getElementById('suggestions-count');
-    
-    // Initialize VS Code API connection
+    const resultsSection = document.querySelector('.results-section');
+
+    // State
+    let cameraEnabled = false;
+    let cameraStream = null;
+    let frameCaptureInterval = null;
+    let currentMood = null;
+    let moodConfidence = 0;
+
+    // VS Code API
     const vscode = acquireVsCodeApi();
-    
-    // Setup event listeners
-    function initializeEventListeners() {
-        // Mood selection
-        moodOptions.forEach(option => {
-            option.addEventListener('click', () => {
-                selectMood(option);
-            });
-        });
-        
-        // Analyze button
-        analyzeBtn.addEventListener('click', () => {
-            startAnalysis();
-        });
-        
-        // Listen for messages from the extension
+
+    // Set up event listeners
+    function setupEventListeners() {
+        enableCameraBtn.addEventListener('click', toggleCamera);
+        analyzeBtn.addEventListener('click', startAnalysis);
+
         window.addEventListener('message', event => {
             const message = event.data;
-            handleExtensionMessage(message);
-        });
-    }
-    
-    // Handle mood selection
-    function selectMood(option) {
-        // Remove selected class from all options
-        moodOptions.forEach(opt => opt.classList.remove('selected'));
-        
-        // Add selected class to clicked option
-        option.classList.add('selected');
-        
-        // Update selected mood
-        state.selectedMood = option.getAttribute('data-mood');
-        
-        // Update status
-        updateStatus('ready', `Ready to analyze with mood: ${state.selectedMood}`);
-    }
-    
-    // Update the status section
-    function updateStatus(statusType, message) {
-        statusMessage.textContent = message;
-        
-        // Update indicator
-        statusIndicator.className = 'status-indicator';
-        if (statusType) {
-            statusIndicator.classList.add(statusType);
-        }
-    }
-    
-    // Start the analysis
-    function startAnalysis() {
-        if (!state.selectedMood) {
-            updateStatus('', 'Please select a mood first.');
-            return;
-        }
-        
-        if (state.analyzing) {
-            return; // Prevent multiple clicks
-        }
-        
-        // Update state
-        state.analyzing = true;
-        
-        // Get checkbox values
-        const checkSyntax = document.getElementById('check-syntax').checked;
-        const checkStyle = document.getElementById('check-style').checked;
-        const checkPerformance = document.getElementById('check-performance').checked;
-        const checkBestPractices = document.getElementById('check-best-practices').checked;
-        
-        // Update UI
-        updateStatus('busy', `Analyzing code with mood: ${state.selectedMood}...`);
-        analyzeBtn.disabled = true;
-        resultsSection.style.display = 'none';
-        
-        // Send message to extension
-        vscode.postMessage({
-            command: 'analyze',
-            mood: state.selectedMood,
-            options: {
-                syntax: checkSyntax,
-                style: checkStyle,
-                performance: checkPerformance,
-                bestPractices: checkBestPractices
+            console.log(`[Webview] Received message: ${JSON.stringify(message)}`);
+            switch (message.command) {
+                case 'startCamera':
+                    console.log('[Webview] Starting camera...');
+                    enableCamera();
+                    break;
+                case 'moodDetected':
+                    handleMoodDetection(message.mood, message.confidence);
+                    break;
+                case 'analysisComplete':
+                    displayResults(message.results);
+                    break;
             }
         });
+
+        console.log('[Webview] Event listeners set up');
     }
-    
-    // Handle messages from the extension
-    function handleExtensionMessage(message) {
-        switch (message.command) {
-            case 'analysisComplete':
-                renderResults(message.results);
-                break;
+
+    // Toggle camera
+    function toggleCamera() {
+        if (cameraEnabled) {
+            disableCamera();
+        } else {
+            enableCamera();
         }
     }
-    
-    // Render analysis results
-    function renderResults(results) {
-        // Reset state
-        state.analyzing = false;
+
+    // Enable camera
+    function enableCamera() {
+        if (cameraEnabled) {
+            console.log('[Webview] Camera already enabled');
+            return;
+        }
+
+        console.log('[Webview] Requesting camera access...');
+        updateStatus('busy', 'Requesting camera permission...');
+        enableCameraBtn.disabled = true;
+        enableCameraBtn.textContent = 'Requesting permission...';
+
+        if (!cameraFeed || !debugCanvas) {
+            console.error('[Webview] Camera feed or debug canvas not found');
+            handleCameraError('Camera elements not found');
+            return;
+        }
+
+        cameraFeed.width = 320;
+        cameraFeed.height = 240;
+        debugCanvas.width = 320;
+        debugCanvas.height = 240;
+
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+            navigator.mediaDevices.getUserMedia({
+                video: { width: { ideal: 320 }, height: { ideal: 240 }, facingMode: 'user' }
+            })
+            .then(stream => {
+                console.log('[Webview] Camera permission granted');
+                cameraStream = stream;
+                cameraFeed.srcObject = stream;
+
+                cameraFeed.onloadedmetadata = () => {
+                    console.log('[Webview] Video metadata loaded');
+                    cameraFeed.style.display = 'block';
+                    cameraPlaceholder.style.display = 'none';
+
+                    cameraFeed.play()
+                        .then(() => {
+                            console.log('[Webview] Camera playback started');
+                            enableCameraBtn.disabled = false;
+                            enableCameraBtn.textContent = 'Disable Camera';
+                            updateStatus('ready', 'Camera activated!');
+                            cameraEnabled = true;
+                            startFrameCapture();
+                            vscode.postMessage({ command: 'cameraEnabled' });
+                        })
+                        .catch(err => {
+                            console.error('[Webview] Playback error:', err);
+                            handleCameraError('Failed to play video: ' + err.message);
+                        });
+                };
+            })
+            .catch(err => {
+                console.error('[Webview] Camera access error:', err);
+                if (err.name === 'NotAllowedError') {
+                    handleCameraError('Camera permission denied');
+                } else if (err.name === 'NotFoundError') {
+                    handleCameraError('No camera found');
+                } else {
+                    handleCameraError('Camera error: ' + err.message);
+                }
+            });
+        } else {
+            console.error('[Webview] getUserMedia not supported');
+            handleCameraError('Camera not supported');
+        }
+    }
+
+    // Handle camera errors
+    function handleCameraError(errorMessage) {
+        updateStatus('', errorMessage);
+        enableCameraBtn.disabled = false;
+        enableCameraBtn.textContent = 'Go with mood debug';
+        cameraEnabled = false;
+        if (cameraStream) {
+            cameraStream.getTracks().forEach(track => track.stop());
+            cameraStream = null;
+        }
+    }
+
+    // Disable camera
+    function disableCamera() {
+        console.log('[Webview] Disabling camera');
+        if (cameraStream) {
+            cameraStream.getTracks().forEach(track => track.stop());
+            cameraStream = null;
+        }
+        if (cameraFeed) {
+            cameraFeed.srcObject = null;
+            cameraFeed.style.display = 'none';
+        }
+        cameraPlaceholder.style.display = 'flex';
+        if (frameCaptureInterval) {
+            clearInterval(frameCaptureInterval);
+            frameCaptureInterval = null;
+        }
+        moodConfidenceSection.style.display = 'none';
+        enableCameraBtn.textContent = 'Go with mood debug';
+        analyzeBtn.disabled = true;
+        updateStatus('', 'Camera disabled');
+        vscode.postMessage({ command: 'cameraDisabled' });
+        cameraEnabled = false;
+    }
+
+    // Start frame capture for mood detection
+    function startFrameCapture() {
+        if (!debugCanvas || !cameraFeed || !cameraEnabled) {
+            console.error('[Webview] Cannot capture frames: missing elements or camera off');
+            return;
+        }
+
+        console.log('[Webview] Starting frame capture');
+        const context = debugCanvas.getContext('2d');
+        if (!context) return;
+
+        frameCaptureInterval = setInterval(() => {
+            if (!cameraEnabled || !cameraStream) {
+                clearInterval(frameCaptureInterval);
+                frameCaptureInterval = null;
+                return;
+            }
+            context.drawImage(cameraFeed, 0, 0, debugCanvas.width, debugCanvas.height);
+            const imageData = debugCanvas.toDataURL('image/jpeg', 0.7);
+            vscode.postMessage({ command: 'processMood', imageData });
+        }, 1000);
+    }
+
+    // Handle mood detection
+    function handleMoodDetection(mood, confidence) {
+        console.log(`[Webview] Mood detected: ${mood} (${confidence})`);
+        currentMood = mood;
+        moodConfidence = confidence;
+        currentMoodDisplay.textContent = mood;
+        moodConfidenceSection.style.display = 'block';
+        confidenceBar.style.width = `${Math.round(confidence * 100)}%`;
+        if (confidence >= 0.6) analyzeBtn.disabled = false;
+    }
+
+    // Start analysis
+    function startAnalysis() {
+        if (!currentMood) {
+            updateStatus('', 'No mood detected');
+            return;
+        }
+        updateStatus('busy', 'Analyzing code...');
+        analyzeBtn.disabled = true;
+        resultsSection.style.display = 'none';
+
+        const options = {
+            syntax: document.getElementById('check-syntax')?.checked || false,
+            style: document.getElementById('check-style')?.checked || false,
+            performance: document.getElementById('check-performance')?.checked || false,
+            bestPractices: document.getElementById('check-best-practices')?.checked || false
+        };
+
+        vscode.postMessage({ command: 'analyze', mood: currentMood, confidence: moodConfidence, options });
+    }
+
+    // Display results
+    function displayResults(results) {
+        console.log('[Webview] Displaying results:', results);
         analyzeBtn.disabled = false;
-        
-        // Update status
-        updateStatus('ready', `Analysis complete for mood: ${results.mood}`);
-        
-        // Clear previous results
+        updateStatus('ready', 'Analysis complete!');
         resultsList.innerHTML = '';
-        
-        // Count types
-        let errors = 0;
-        let warnings = 0;
-        let suggestions = 0;
-        
-        // Process and render issues
-        if (results.issues && results.issues.length > 0) {
+
+        let errors = 0, warnings = 0, suggestions = 0;
+        if (results.issues && results.issues.length) {
             results.issues.forEach(issue => {
-                // Count by severity
                 if (issue.severity === 'error') errors++;
                 else if (issue.severity === 'warning') warnings++;
                 else suggestions++;
-                
-                // Create result item
-                const resultItem = document.createElement('div');
-                resultItem.className = `result-item ${issue.severity}`;
-                
-                // Create location element
-                const locationElement = document.createElement('div');
-                locationElement.className = 'result-location';
-                locationElement.textContent = `Line ${issue.line}`;
-                
-                // Create message element
-                const messageElement = document.createElement('div');
-                messageElement.className = 'result-message';
-                messageElement.textContent = issue.message;
-                
-                // Assemble item
-                resultItem.appendChild(locationElement);
-                resultItem.appendChild(messageElement);
-                
-                // Add to list
-                resultsList.appendChild(resultItem);
+
+                const item = document.createElement('div');
+                item.className = `result-item ${issue.severity}`;
+                item.innerHTML = `<div class="result-location">Line ${issue.line}</div><div class="result-message">${issue.message}</div>`;
+                resultsList.appendChild(item);
             });
         } else {
-            const noIssuesElement = document.createElement('div');
-            noIssuesElement.textContent = 'No issues found. Your code looks good!';
-            resultsList.appendChild(noIssuesElement);
+            resultsList.textContent = 'No issues found!';
         }
-        
-        // Update count displays
-        errorsCount.textContent = errors;
-        warningsCount.textContent = warnings;
-        suggestionsCount.textContent = suggestions;
-        
-        // Show results section
+
+        document.getElementById('errors-count').textContent = errors;
+        document.getElementById('warnings-count').textContent = warnings;
+        document.getElementById('suggestions-count').textContent = suggestions;
         resultsSection.style.display = 'block';
     }
-    
-    // Initialize the application
-    function initialize() {
-        initializeEventListeners();
-        
-        // Set initial status
-        updateStatus('', 'Ready to analyze your code. Select your mood and press "Start Analysis".');
+
+    // Update status
+    function updateStatus(statusType, message) {
+        console.log(`[Webview] Status: ${statusType} - ${message}`);
+        statusMessage.textContent = message;
+        statusIndicator.className = 'status-indicator';
+        if (statusType) statusIndicator.classList.add(statusType);
     }
-    
-    // Start the application
-    initialize();
+
+    // Initialize
+    function initialize() {
+        console.log('[Webview] Initializing MoodLint');
+        if (!cameraFeed || !enableCameraBtn) {
+            console.error('[Webview] Essential DOM elements missing');
+            return;
+        }
+        setupEventListeners();
+        updateStatus('', 'Initializing...');
+        // Send webviewReady after listeners are set up
+        setTimeout(() => {
+            console.log('[Webview] Sending webviewReady');
+            vscode.postMessage({ command: 'webviewReady' });
+        }, 100); // Small delay to ensure listeners are ready
+    }
+
+    // Start when DOM is ready
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initialize);
+    } else {
+        initialize();
+    }
 })();
