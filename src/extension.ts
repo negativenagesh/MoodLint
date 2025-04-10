@@ -5,8 +5,12 @@ import { getWebviewContent } from './webviewContent';
 // Panel tracking variables
 let moodlintPanel: vscode.WebviewPanel | undefined = undefined;
 
+// Mood detection variables
+let currentMood: string | null = null;
+let moodConfidence: number = 0;
+
 /**
- * Manages MoodLint webview panels
+ * Creates and manages the MoodLint webview panel
  */
 function createMoodlintPanel(context: vscode.ExtensionContext) {
     // If we already have a panel, show it
@@ -15,7 +19,7 @@ function createMoodlintPanel(context: vscode.ExtensionContext) {
         return;
     }
 
-    // Otherwise, create a new panel
+    // Create a new panel
     moodlintPanel = vscode.window.createWebviewPanel(
         'moodlintPanel',
         'MoodLint',
@@ -43,10 +47,12 @@ function createMoodlintPanel(context: vscode.ExtensionContext) {
     // Set panel HTML content
     moodlintPanel.webview.html = getWebviewContent(stylesUri, scriptUri);
 
-    // Reset panel variable when panel is closed
+    // Reset panel when closed
     moodlintPanel.onDidDispose(
         () => {
             moodlintPanel = undefined;
+            currentMood = null;
+            moodConfidence = 0;
         },
         null,
         context.subscriptions
@@ -55,60 +61,127 @@ function createMoodlintPanel(context: vscode.ExtensionContext) {
     // Handle messages from the webview
     moodlintPanel.webview.onDidReceiveMessage(
         message => {
+            console.log(`[Extension] Received message: ${JSON.stringify(message)}`);
             switch (message.command) {
+                case 'webviewReady':
+                    console.log('[Extension] Webview is ready, sending startCamera command');
+                    if (moodlintPanel) {
+                        moodlintPanel.webview.postMessage({ command: 'startCamera' });
+                    }
+                    break;
+                case 'cameraEnabled':
+                    console.log('[Extension] Camera enabled in webview');
+                    vscode.window.showInformationMessage('Camera activated successfully');
+                    break;
+                case 'cameraDisabled':
+                    console.log('[Extension] Camera disabled in webview');
+                    vscode.window.showInformationMessage('Camera deactivated');
+                    break;
+                case 'processMood':
+                    processMoodFromImage(message.imageData);
+                    break;
                 case 'analyze':
-                    vscode.window.showInformationMessage(`Analyzing with mood: ${message.mood}`);
-                    // Here you would call your actual analysis logic
-                    analyzeWithMood(message.mood, message.options);
-                    return;
+                    console.log(`[Extension] Analyzing with mood: ${message.mood}`);
+                    vscode.window.showInformationMessage(`Analyzing code with mood: ${message.mood}`);
+                    analyzeWithMood(message.mood, message.confidence, message.options);
+                    break;
             }
         },
         undefined,
         context.subscriptions
     );
+    
+    console.log('[Extension] MoodLint panel created');
 }
 
 /**
- * Perform the analysis based on the selected mood and options
+ * Process image data from webcam to detect mood (placeholder)
  */
-function analyzeWithMood(mood: string, options: any) {
-    // Placeholder for actual analysis logic
-    console.log(`Analyzing with mood: ${mood}`);
-    console.log('Options:', options);
-    
-    // In a real implementation, you would:
-    // 1. Get the active editor content
-    // 2. Run analysis based on mood
-    // 3. Return results to the webview
-    
-    // Example of sending message back to webview (if implemented)
+function processMoodFromImage(imageData: string) {
+    setTimeout(() => {
+        const moods = ['happy', 'focused', 'tired', 'creative', 'stressed'];
+        const randomIndex = Math.floor(Math.random() * moods.length);
+        const detectedMood = moods[randomIndex];
+        const confidence = 0.6 + Math.random() * 0.35;
+
+        currentMood = detectedMood;
+        moodConfidence = confidence;
+
+        if (moodlintPanel) {
+            moodlintPanel.webview.postMessage({
+                command: 'moodDetected',
+                mood: detectedMood,
+                confidence: confidence
+            });
+        }
+    }, 500);
+}
+
+/**
+ * Perform code analysis based on mood (placeholder)
+ */
+function analyzeWithMood(mood: string, confidence: number, options: any) {
+    currentMood = mood;
+    moodConfidence = confidence;
+
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+        vscode.window.showWarningMessage('No active editor found');
+        if (moodlintPanel) {
+            moodlintPanel.webview.postMessage({
+                command: 'analysisComplete',
+                results: { mood, issues: [] }
+            });
+        }
+        return;
+    }
+
+    const text = editor.document.getText();
+    const issues = analyzeCodeBasedOnMood(text, mood, options);
+
     if (moodlintPanel) {
         setTimeout(() => {
-            moodlintPanel?.webview.postMessage({
-                command: 'analysisComplete',
-                results: {
-                    mood: mood,
-                    issues: [
-                        { line: 10, message: 'This code looks sad', severity: 'info' },
-                        { line: 25, message: 'Consider refactoring', severity: 'warning' }
-                    ]
-                }
-            });
-        }, 2000); // Simulate processing time
+            if (moodlintPanel) {
+                moodlintPanel.webview.postMessage({
+                    command: 'analysisComplete',
+                    results: { mood, issues }
+                });
+            }
+        }, 2000);
     }
 }
 
-// This method is called when your extension is activated
-export function activate(context: vscode.ExtensionContext) {
-    console.log('Congratulations, your extension "moodlint" is now active!');
+/**
+ * Placeholder for code analysis
+ */
+function analyzeCodeBasedOnMood(code: string, mood: string, options: any): any[] {
+    const issues = [];
+    switch (mood) {
+        case 'happy':
+            issues.push({ line: 10, message: 'Great job! Consider adding comments.', severity: 'info' });
+            break;
+        case 'focused':
+            issues.push({ line: 10, message: 'Optimize this function.', severity: 'warning' });
+            break;
+        case 'tired':
+            issues.push({ line: 15, message: 'Potential memory leak.', severity: 'error' });
+            break;
+        default:
+            issues.push({ line: 10, message: 'General suggestion.', severity: 'info' });
+    }
+    return issues;
+}
 
-    // Register the command to open the MoodLint panel
+// Extension activation
+export function activate(context: vscode.ExtensionContext) {
+    console.log('[Extension] MoodLint extension activated');
     const disposable = vscode.commands.registerCommand('moodlint.helloWorld', () => {
         createMoodlintPanel(context);
     });
-
     context.subscriptions.push(disposable);
 }
 
-// This method is called when your extension is deactivated
-export function deactivate() {}
+// Extension deactivation
+export function deactivate() {
+    console.log('[Extension] MoodLint extension deactivated');
+}
