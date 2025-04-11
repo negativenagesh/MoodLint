@@ -10,6 +10,18 @@ let currentMood: string | null = null;
 let moodConfidence: number = 0;
 
 /**
+ * Helper function that generates a nonce
+ */
+function getNonce() {
+    let text = '';
+    const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    for (let i = 0; i < 32; i++) {
+        text += possible.charAt(Math.floor(Math.random() * possible.length));
+    }
+    return text;
+}
+
+/**
  * Creates and manages the MoodLint webview panel
  */
 function createMoodlintPanel(context: vscode.ExtensionContext) {
@@ -19,9 +31,9 @@ function createMoodlintPanel(context: vscode.ExtensionContext) {
         return;
     }
 
-    console.log('[Extension] Creating new MoodLint panel');
+    // Create the panel first
     moodlintPanel = vscode.window.createWebviewPanel(
-        'moodlintPanel',
+        'moodlint',
         'MoodLint',
         vscode.ViewColumn.One,
         {
@@ -31,12 +43,17 @@ function createMoodlintPanel(context: vscode.ExtensionContext) {
         }
     );
 
+    // Now that we have created the panel, we can safely use it
     const stylesPath = vscode.Uri.file(path.join(context.extensionPath, 'media', 'styles.css'));
     const stylesUri = moodlintPanel.webview.asWebviewUri(stylesPath);
     const scriptPath = vscode.Uri.file(path.join(context.extensionPath, 'media', 'main.js'));
     const scriptUri = moodlintPanel.webview.asWebviewUri(scriptPath);
+    
+    // Generate a nonce for content security policy
+    const nonce = getNonce();
+    const cspSource = moodlintPanel.webview.cspSource;
 
-    moodlintPanel.webview.html = getWebviewContent(stylesUri, scriptUri);
+    moodlintPanel.webview.html = getWebviewContent(stylesUri, scriptUri, nonce, cspSource);
 
     moodlintPanel.onDidDispose(
         () => {
