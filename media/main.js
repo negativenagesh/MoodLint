@@ -12,25 +12,29 @@
     const resultsList = document.getElementById('results-list');
     const resultsSection = document.querySelector('.results-section');
 
-    let cameraEnabled = false;
-    let cameraStream = null;
-    let frameCaptureInterval = null;
+    let externalCameraActive = false;
     let currentMood = null;
     let moodConfidence = 0;
 
     const vscode = acquireVsCodeApi();
 
     function setupEventListeners() {
-        enableCameraBtn.addEventListener('click', toggleCamera);
+        // Changed this to directly trigger the external camera
+        enableCameraBtn.addEventListener('click', toggleExternalCamera);
         analyzeBtn.addEventListener('click', startAnalysis);
 
         window.addEventListener('message', event => {
             const message = event.data;
             console.log(`[Webview] Received: ${JSON.stringify(message)}`);
             switch (message.command) {
-                case 'startCamera':
-                    console.log('[Webview] Triggering camera start');
-                    enableCamera();
+                case 'externalCameraStarted':
+                    handleExternalCameraStarted();
+                    break;
+                case 'externalCameraFailed':
+                    handleExternalCameraFailed(message.error);
+                    break;
+                case 'cameraOff':
+                    handleCameraOff();
                     break;
                 case 'moodDetected':
                     handleMoodDetection(message.mood, message.confidence);
@@ -42,180 +46,55 @@
         });
     }
 
-    function toggleCamera() {
-        if (cameraEnabled) {
-            disableCamera();
+    function toggleExternalCamera() {
+        if (externalCameraActive) {
+            disableExternalCamera();
         } else {
-            enableCamera();
+            enableExternalCamera();
         }
     }
 
-    function enableCamera() {
-        if (cameraEnabled) {
-            console.log('[Webview] Camera already enabled');
-            return;
-        }
-
-        console.log('[Webview] Requesting camera...');
-        updateStatus('busy', 'Requesting camera access...');
+    function enableExternalCamera() {
+        console.log('[Webview] Requesting external camera...');
+        updateStatus('busy', 'Launching external camera...');
         enableCameraBtn.disabled = true;
-        enableCameraBtn.textContent = 'Requesting...';
+        enableCameraBtn.textContent = 'Launching...';
 
-        if (!cameraFeed || !debugCanvas) {
-            console.error('[Webview] Missing camera elements');
-            handleCameraError('Camera setup failed: missing DOM elements');
-            return;
-        }
-
-        cameraFeed.width = 320;
-        cameraFeed.height = 240;
-        debugCanvas.width = 320;
-        debugCanvas.height = 240;
-
-        // Check if mediaDevices API is available
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-            const errorMsg = 'Camera API not available in this browser/context';
-            vscode.postMessage({ command: 'cameraError', error: errorMsg });
-            handleCameraError(errorMsg);
-            return;
-        }
-
-        // Try with exact constraints first
-        const constraints = {
-            audio: false,
-            video: { 
-                width: { ideal: 320 }, 
-                height: { ideal: 240 }, 
-                facingMode: 'user'
-            }
-        };
-
-        console.log('[Webview] Requesting media with constraints:', JSON.stringify(constraints));
-        
-        navigator.mediaDevices.getUserMedia(constraints)
-            .then(stream => {
-                console.log('[Webview] Camera access granted');
-                cameraStream = stream;
-                cameraFeed.srcObject = stream;
-
-                cameraFeed.onloadedmetadata = () => {
-                    console.log('[Webview] Video loaded');
-                    cameraFeed.style.display = 'block';
-                    cameraPlaceholder.style.display = 'none';
-                    
-                    cameraFeed.play()
-                        .then(() => {
-                            console.log('[Webview] Camera active');
-                            enableCameraBtn.disabled = false;
-                            enableCameraBtn.textContent = 'Disable Camera';
-                            updateStatus('ready', 'Camera on!');
-                            cameraEnabled = true;
-                            startFrameCapture();
-                            vscode.postMessage({ command: 'cameraEnabled' });
-                        })
-                        .catch(err => {
-                            console.error('[Webview] Play error:', err);
-                            handleCameraError('Cannot play video: ' + err.message);
-                        });
-                };
-                
-                cameraFeed.onerror = (err) => {
-                    console.error('[Webview] Video error:', err);
-                    handleCameraError('Video error: ' + err.message || 'Unknown video error');
-                };
-            })
-            .catch(err => {
-                console.error('[Webview] Camera error:', err);
-                let errorMessage = 'Unknown camera error';
-                if (err.name === 'NotAllowedError') {
-                    errorMessage = 'Camera permission denied. Please allow access in your browser/OS settings and retry.';
-                } else if (err.name === 'NotFoundError') {
-                    errorMessage = 'No camera found. Connect a camera and retry.';
-                } else if (err.name === 'NotReadableError') {
-                    errorMessage = 'Camera in use by another app.';
-                } else if (err.name === 'OverconstrainedError') {
-                    // Try with simpler constraints
-                    navigator.mediaDevices.getUserMedia({ video: true })
-                        .then(stream => {
-                            cameraStream = stream;
-                            cameraFeed.srcObject = stream;
-                            cameraFeed.style.display = 'block';
-                            cameraPlaceholder.style.display = 'none';
-                            
-                            cameraFeed.onloadedmetadata = () => {
-                                cameraFeed.play()
-                                    .then(() => {
-                                        enableCameraBtn.disabled = false;
-                                        enableCameraBtn.textContent = 'Disable Camera';
-                                        updateStatus('ready', 'Camera on!');
-                                        cameraEnabled = true;
-                                        startFrameCapture();
-                                        vscode.postMessage({ command: 'cameraEnabled' });
-                                    })
-                                    .catch(e => handleCameraError('Cannot play video: ' + e.message));
-                            };
-                        })
-                        .catch(e => {
-                            errorMessage = 'Camera error (fallback): ' + e.message;
-                            handleCameraError(errorMessage);
-                        });
-                    return;
-                } else {
-                    errorMessage = 'Camera error: ' + err.message;
-                }
-                handleCameraError(errorMessage);
-                vscode.postMessage({ command: 'cameraError', error: errorMessage });
-            });
+        // Send the command to start the external camera app
+        vscode.postMessage({ command: 'startExternalCamera' });
     }
 
-    function handleCameraError(errorMessage) {
-        console.log('[Webview] Handling error:', errorMessage);
-        updateStatus('', errorMessage);
+    function handleExternalCameraStarted() {
+        console.log('[Webview] External camera started');
+        enableCameraBtn.disabled = false;
+        enableCameraBtn.textContent = 'Stop Camera';
+        updateStatus('ready', 'External camera active');
+        externalCameraActive = true;
+        // Enable the analyze button since we expect mood data from the external app
+        analyzeBtn.disabled = false;
+    }
+
+    function handleExternalCameraFailed(error) {
+        console.error('[Webview] External camera failed:', error);
+        updateStatus('', `Camera error: ${error}`);
         enableCameraBtn.disabled = false;
         enableCameraBtn.textContent = 'Go with mood debug';
-        if (cameraStream) {
-            cameraStream.getTracks().forEach(track => track.stop());
-            cameraStream = null;
-        }
-        cameraEnabled = false;
-        vscode.postMessage({ command: 'cameraError', error: errorMessage });
+        externalCameraActive = false;
+        analyzeBtn.disabled = true;
     }
 
-    function disableCamera() {
-        console.log('[Webview] Disabling camera');
-        if (cameraStream) {
-            cameraStream.getTracks().forEach(track => track.stop());
-            cameraStream = null;
-        }
-        cameraFeed.srcObject = null;
-        cameraFeed.style.display = 'none';
-        cameraPlaceholder.style.display = 'flex';
-        if (frameCaptureInterval) {
-            clearInterval(frameCaptureInterval);
-        }
-        moodConfidenceSection.style.display = 'none';
+    function disableExternalCamera() {
+        console.log('[Webview] Disabling external camera');
+        vscode.postMessage({ command: 'stopExternalCamera' });
+        handleCameraOff();
+    }
+
+    function handleCameraOff() {
         enableCameraBtn.textContent = 'Go with mood debug';
         analyzeBtn.disabled = true;
         updateStatus('', 'Camera off');
-        vscode.postMessage({ command: 'cameraDisabled' });
-        cameraEnabled = false;
-    }
-
-    function startFrameCapture() {
-        if (!cameraEnabled || !cameraStream) return;
-        console.log('[Webview] Starting frame capture');
-        const context = debugCanvas.getContext('2d');
-        frameCaptureInterval = setInterval(() => {
-            try {
-                context.drawImage(cameraFeed, 0, 0, 320, 240);
-                const imageData = debugCanvas.toDataURL('image/jpeg', 0.7);
-                vscode.postMessage({ command: 'processMood', imageData });
-            } catch (err) {
-                console.error('[Webview] Frame capture error:', err);
-                clearInterval(frameCaptureInterval);
-                handleCameraError('Frame capture error: ' + err.message);
-            }
-        }, 1000);
+        externalCameraActive = false;
+        moodConfidenceSection.style.display = 'none';
     }
 
     function handleMoodDetection(mood, confidence) {
@@ -282,8 +161,7 @@
     function initialize() {
         console.log('[Webview] Initializing');
         setupEventListeners();
-        updateStatus('', 'Initializing...');
-        console.log('[Webview] Sending webviewReady');
+        updateStatus('', 'Click "Go with mood debug" to enable external camera');
         vscode.postMessage({ command: 'webviewReady' });
     }
 
