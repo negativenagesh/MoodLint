@@ -18,8 +18,15 @@
 
 Welcome to the **MoodLint**! MoodLint is a Visual Studio Code extension that helps in debugging by integrating real-time emotion analysis with advanced visualization capabilities. Designed for developers navigating the emotional highs and lows of coding, MoodLint uses deep learning to detect your emotional state—whether you're frustrated, focused, or fatigued—and provides tailored debugging suggestions. Additionally, it leverages a Generative Adversarial Network (GAN) to generate artistic visualizations of your code structure, enhancing understanding with fun, animated graphs.
 
-Why MoodLint exist?
+## Why MoodLint exist?
 
+Debugging is a critical part of software development, requiring intense focus, problem-solving skills, and patience to identify and fix errors in code. A programmer’s mood—whether they are stressed, frustrated, anxious, or calm—can directly affect how well they perform this task. Here’s why:
+
+Negative Moods and Cognitive Impact: When a programmer is in a bad mood, such as feeling frustrated after hours of chasing a bug, their ability to concentrate may diminish. Stress or anxiety can lead to tunnel vision, where they fixate on a single approach (even if it’s ineffective) or overlook obvious solutions. For example, a stressed programmer might repeatedly tweak the same section of code without stepping back to consider the broader system, prolonging the debugging process.
+Positive Moods and Creativity: Conversely, a positive or calm mood can enhance creativity and flexibility. A programmer who feels relaxed or confident might approach a bug with fresh perspectives, experimenting with alternative solutions or spotting patterns that a frustrated programmer might miss. This suggests that mood doesn’t just affect speed—it can influence the quality of the debugging outcome.
+Emotional Fatigue: Debugging often involves dealing with complex, elusive problems that can wear down a programmer over time. Emotional fatigue from prolonged debugging sessions can reduce attention to detail, increasing the likelihood of errors or incomplete fixes. Recognizing mood could help mitigate this by prompting breaks or adjustments in approach.
+
+Source:
 https://link.springer.com/article/10.1007/s10111-010-0164-1
 
 ## Features
