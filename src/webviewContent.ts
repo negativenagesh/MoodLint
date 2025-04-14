@@ -25,14 +25,11 @@ export function getWebviewContent(
                 <section class="mood-detector-section">
                     <h2>Mood Detection</h2>
                     <p>MoodLint analyzes your facial expressions to detect your emotional state.</p>
-                    <div class="camera-container">
-                        <video id="camera-feed" autoplay playsinline style="display: none;"></video>
-                        <canvas id="debug-canvas" style="display: none;"></canvas>
-                        <div id="camera-placeholder" class="camera-placeholder">
-                            <div class="camera-icon">📷</div>
-                            <p>Camera will appear here</p>
-                        </div>
-                    </div>
+                    
+                    <!-- Hidden video/canvas elements for potential future use -->
+                    <video id="camera-feed" autoplay playsinline style="display: none;"></video>
+                    <canvas id="debug-canvas" style="display: none;"></canvas>
+                    
                     <div class="mood-status">
                         <div class="detected-mood">
                             <span>Detected Mood: </span>
