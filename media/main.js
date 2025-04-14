@@ -1,7 +1,6 @@
 (function() {
     const cameraFeed = document.getElementById('camera-feed');
     const debugCanvas = document.getElementById('debug-canvas');
-    const cameraPlaceholder = document.getElementById('camera-placeholder');
     const enableCameraBtn = document.getElementById('enable-camera-btn');
     const analyzeBtn = document.getElementById('analyze-btn');
     const statusIndicator = document.querySelector('.status-indicator');
@@ -19,7 +18,6 @@
     const vscode = acquireVsCodeApi();
 
     function setupEventListeners() {
-        // Changed this to directly trigger the external camera
         enableCameraBtn.addEventListener('click', toggleExternalCamera);
         analyzeBtn.addEventListener('click', startAnalysis);
 
