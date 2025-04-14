@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
+import * as childProcess from 'child_process';
+import * as fs from 'fs';
 import { getWebviewContent } from './webviewContent';
 
 // Panel tracking variable
@@ -8,6 +10,9 @@ let moodlintPanel: vscode.WebviewPanel | undefined = undefined;
 // Mood detection variables
 let currentMood: string | null = null;
 let moodConfidence: number = 0;
+
+// Python camera process
+let cameraProcess: childProcess.ChildProcess | null = null;
 
 /**
  * Helper function that generates a nonce
@@ -19,6 +24,177 @@ function getNonce() {
         text += possible.charAt(Math.floor(Math.random() * possible.length));
     }
     return text;
+}
+
+/**
+ * Start Python camera application
+ */
+function startPythonCameraApp(context: vscode.ExtensionContext): Promise<void> {
+    return new Promise((resolve, reject) => {
+        if (cameraProcess) {
+            // Camera already running
+            resolve();
+            return;
+        }
+
+        const pythonPath = 'python3'; // or 'python' on some systems
+        const scriptPath = path.join(context.extensionPath, 'popup', 'camera.py');
+        const sessionId = Date.now().toString();
+
+        console.log(`[Extension] Starting Python camera app: ${scriptPath}`);
+        
+        // Check if the file exists
+        if (!fs.existsSync(scriptPath)) {
+            const error = new Error(`Python script not found at ${scriptPath}`);
+            console.error('[Extension] Python script not found:', error);
+            reject(error);
+            return;
+        }
+        
+        try {
+            // Make sure the script is executable
+            try {
+                // This will throw an error on Windows, but that's ok
+                fs.chmodSync(scriptPath, 0o755);
+            } catch (err) {
+                // Ignore chmod errors
+            }
+            
+            // Spawn the process without shell for better GUI compatibility
+            // Using detached option to ensure the process can open windows
+            cameraProcess = childProcess.spawn(pythonPath, [scriptPath, sessionId], {
+                env: { 
+                    ...process.env, 
+                    DISPLAY: process.env.DISPLAY || ':0',
+                    PYTHONUNBUFFERED: '1' // Ensure Python output isn't buffered
+                },
+                detached: true, // This is important for GUI applications
+                stdio: 'pipe'   // Ensure we can still capture output
+            });
+            
+            // Set a timeout for initial startup
+            const timeout = setTimeout(() => {
+                console.log('[Extension] Camera app startup timeout - assuming it started anyway');
+                resolve();
+            }, 5000);
+            
+            // Handle process output (for mood detection results)
+            cameraProcess.stdout?.on('data', (data) => {
+                try {
+                    const output = data.toString().trim();
+                    console.log(`[Extension] Python output: ${output}`);
+                    
+                    if (output) {
+                        try {
+                            const result = JSON.parse(output);
+                            
+                            // Check for status updates
+                            if (result.status) {
+                                if (result.status === 'ready') {
+                                    clearTimeout(timeout);
+                                    resolve();
+                                }
+                            }
+                            
+                            // Check for mood data
+                            if (result.mood && result.confidence) {
+                                processMoodFromPython(result.mood, result.confidence);
+                            }
+                            
+                            // Check for errors
+                            if (result.error) {
+                                console.error(`[Extension] Python reported error: ${result.error}`);
+                                vscode.window.showErrorMessage(`Camera error: ${result.error}`);
+                            }
+                        } catch (jsonError) {
+                            // If it's not valid JSON, just log it
+                            console.log(`[Extension] Non-JSON output: ${output}`);
+                        }
+                    }
+                } catch (error) {
+                    console.error('[Extension] Error parsing Python output:', error);
+                }
+            });
+            
+            // Handle errors
+            cameraProcess.stderr?.on('data', (data) => {
+                const errorOutput = data.toString().trim();
+                console.error(`[Extension] Python error: ${errorOutput}`);
+                
+                // Check for specific error messages
+                if (errorOutput.includes('No module named')) {
+                    const missingModule = errorOutput.match(/No module named '([^']+)'/);
+                    if (missingModule && missingModule[1]) {
+                        vscode.window.showErrorMessage(
+                            `Missing Python module: ${missingModule[1]}. Please install it with: pip install ${missingModule[1]}`
+                        );
+                    }
+                }
+            });
+            
+            // Handle process exit
+            cameraProcess.on('close', (code) => {
+                console.log(`[Extension] Python camera app exited with code ${code}`);
+                clearTimeout(timeout);
+                cameraProcess = null;
+                
+                // Notify webview that camera is off
+                if (moodlintPanel) {
+                    moodlintPanel.webview.postMessage({ command: 'cameraOff' });
+                }
+                
+                if (code !== 0) {
+                    reject(new Error(`Python process exited with code ${code}`));
+                } else {
+                    resolve();
+                }
+            });
+            
+            // Handle process error
+            cameraProcess.on('error', (error) => {
+                console.error('[Extension] Failed to start Python process:', error);
+                clearTimeout(timeout);
+                cameraProcess = null;
+                reject(error);
+            });
+            
+            // Wait for a short time to ensure process starts properly
+            setTimeout(() => {
+                if (cameraProcess && cameraProcess.pid) {
+                    console.log(`[Extension] Camera app started with PID: ${cameraProcess.pid}`);
+                    resolve();
+                }
+            }, 1000);
+            
+        } catch (error) {
+            console.error('[Extension] Error launching Python app:', error);
+            reject(error);
+        }
+    });
+}
+
+/**
+ * Stop Python camera application
+ */
+function stopPythonCameraApp() {
+    if (cameraProcess) {
+        console.log('[Extension] Stopping Python camera app');
+        // On Windows, use 'taskkill' or equivalent
+        if (process.platform === 'win32') {
+            childProcess.exec(`taskkill /pid ${cameraProcess.pid} /T /F`);
+        } else {
+            cameraProcess.kill('SIGTERM');
+            // Also try to kill by process group to ensure child processes are terminated
+            try {
+                if (cameraProcess.pid) {
+                    process.kill(-cameraProcess.pid, 'SIGTERM');
+                }
+            } catch (e) {
+                // Ignore error, might not be a process group leader
+            }
+        }
+        cameraProcess = null;
+    }
 }
 
 /**
@@ -61,6 +237,9 @@ function createMoodlintPanel(context: vscode.ExtensionContext) {
             moodlintPanel = undefined;
             currentMood = null;
             moodConfidence = 0;
+            
+            // Make sure to stop Python process when panel is closed
+            stopPythonCameraApp();
         },
         null,
         context.subscriptions
@@ -75,19 +254,28 @@ function createMoodlintPanel(context: vscode.ExtensionContext) {
             }
             switch (message.command) {
                 case 'webviewReady':
-                    console.log('[Extension] Webview ready, sending startCamera');
-                    moodlintPanel.webview.postMessage({ command: 'startCamera' });
+                    console.log('[Extension] Webview ready');
                     break;
-                case 'cameraEnabled':
-                    console.log('[Extension] Camera enabled');
-                    vscode.window.showInformationMessage('Camera activated successfully');
+                case 'startExternalCamera':
+                    // Launch the Python camera app
+                    startPythonCameraApp(context)
+                        .then(() => {
+                            vscode.window.showInformationMessage('External camera launched successfully');
+                            moodlintPanel?.webview.postMessage({ 
+                                command: 'externalCameraStarted' 
+                            });
+                        })
+                        .catch(error => {
+                            vscode.window.showErrorMessage(`Failed to start camera: ${error.message}`);
+                            moodlintPanel?.webview.postMessage({ 
+                                command: 'externalCameraFailed',
+                                error: error.message
+                            });
+                        });
                     break;
-                case 'cameraDisabled':
-                    console.log('[Extension] Camera disabled');
-                    vscode.window.showInformationMessage('Camera deactivated');
-                    break;
-                case 'processMood':
-                    processMoodFromImage(message.imageData);
+                case 'stopExternalCamera':
+                    stopPythonCameraApp();
+                    vscode.window.showInformationMessage('Camera stopped');
                     break;
                 case 'analyze':
                     console.log(`[Extension] Analyzing mood: ${message.mood}`);
@@ -105,32 +293,26 @@ function createMoodlintPanel(context: vscode.ExtensionContext) {
 }
 
 /**
- * Process image data for mood detection (placeholder)
+ * Process mood data from Python
  */
-function processMoodFromImage(imageData: string) {
-    setTimeout(() => {
-        const moods = ['happy', 'focused', 'tired', 'creative', 'stressed'];
-        const detectedMood = moods[Math.floor(Math.random() * moods.length)];
-        const confidence = 0.6 + Math.random() * 0.35;
+function processMoodFromPython(mood: string, confidence: number) {
+    currentMood = mood;
+    moodConfidence = confidence;
 
-        currentMood = detectedMood;
-        moodConfidence = confidence;
-
-        if (moodlintPanel) {
-            console.log('[Extension] Sending moodDetected:', detectedMood);
-            moodlintPanel.webview.postMessage({
-                command: 'moodDetected',
-                mood: detectedMood,
-                confidence: confidence
-            });
-        } else {
-            console.error('[Extension] moodlintPanel undefined, cannot send moodDetected');
-        }
-    }, 500);
+    if (moodlintPanel) {
+        console.log('[Extension] Sending moodDetected from Python:', mood);
+        moodlintPanel.webview.postMessage({
+            command: 'moodDetected',
+            mood: mood,
+            confidence: confidence
+        });
+    } else {
+        console.error('[Extension] moodlintPanel undefined, cannot send moodDetected');
+    }
 }
 
 /**
- * Analyze code based on mood (placeholder)
+ * Analyze code based on mood
  */
 function analyzeWithMood(mood: string, confidence: number, options: any) {
     currentMood = mood;
@@ -192,4 +374,5 @@ export function activate(context: vscode.ExtensionContext) {
 
 export function deactivate() {
     console.log('[Extension] MoodLint deactivated');
+    stopPythonCameraApp();
 }
