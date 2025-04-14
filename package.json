@@ -25,7 +25,8 @@
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src",
-    "test": "vscode-test"
+    "test": "vscode-test",
+    "install-python-deps": "pip install -r popup/pkgs.txt"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
