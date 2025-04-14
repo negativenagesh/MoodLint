@@ -1,6 +1,3 @@
-/* MoodLint Styles */
-
-/* --- Global Styles --- */
 :root {
     --primary-color: var(--vscode-button-background);
     --primary-hover-color: var(--vscode-button-hoverBackground);
@@ -301,30 +298,7 @@ section {
     text-align: center;
 }
 
-.camera-container {
-    margin: var(--spacing-unit) auto;
-    width: 320px;
-    height: 240px;
-    background-color: var(--background-color);
-    border: 1px solid var(--border-color);
-    border-radius: var(--section-border-radius);
-    overflow: hidden;
-    position: relative;
-}
-
-.camera-placeholder {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    height: 100%;
-    background-color: rgba(0, 0, 0, 0.1);
-}
-
-.camera-icon {
-    font-size: 48px;
-    margin-bottom: calc(var(--spacing-unit) / 2);
-}
+/* Removed camera-container and camera-placeholder styles */
 
 .mood-status {
     display: flex;
@@ -369,26 +343,12 @@ section {
     margin-top: var(--spacing-unit);
 }
 
+/* Hide video by default */
 video {
     width: 100%;
     height: 100%;
     object-fit: cover;
-}
-
-.permission-pending .camera-placeholder {
-    background-color: rgba(255, 166, 0, 0.1);
-}
-
-.permission-pending .camera-icon {
-    animation: pulse 1.5s infinite;
-}
-
-.permission-denied .camera-placeholder {
-    background-color: rgba(255, 99, 71, 0.1);
-}
-
-.permission-granted .camera-placeholder {
-    background-color: rgba(100, 149, 237, 0.1);
+    display: none;
 }
 
 .mood-confidence {
@@ -396,37 +356,11 @@ video {
     transition: all 0.3s ease;
 }
 
-/* Style for camera placeholder during initialization */
-.camera-placeholder.initializing {
-    background-color: rgba(0, 0, 0, 0.05);
-    animation: pulse 1.5s infinite;
-}
-
-/* Make sure camera feed fits properly */
-#camera-feed {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-}
-
-.camera-initializing .camera-placeholder {
-    background-color: rgba(100, 149, 237, 0.1);
-}
-
-.camera-initializing .camera-icon {
-    animation: pulse 1.5s infinite;
-}
-
 /* Disable button styling */
 .primary-button:disabled {
     opacity: 0.6;
     cursor: not-allowed;
     transform: none;
-}
-
-/* Camera feed border when active */
-#camera-feed.active {
-    border: 2px solid var(--primary-color);
 }
 
 /* Additional animation for loading states */
