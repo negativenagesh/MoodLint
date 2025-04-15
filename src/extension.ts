@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as childProcess from 'child_process';
 import * as fs from 'fs';
 import { getWebviewContent } from './webviewContent';
+import { AgentInterface } from './agentInterface';
 
 // Panel tracking variable
 let moodlintPanel: vscode.WebviewPanel | undefined = undefined;
@@ -13,6 +14,9 @@ let moodConfidence: number = 0;
 
 // Python camera process
 let cameraProcess: childProcess.ChildProcess | null = null;
+
+// Agent interface
+let agentInterface: AgentInterface | null = null;
 
 /**
  * Helper function that generates a nonce
@@ -312,12 +316,13 @@ function processMoodFromPython(mood: string, confidence: number) {
 }
 
 /**
- * Analyze code based on mood
+ * Analyze code based on mood using the agent system
  */
-function analyzeWithMood(mood: string, confidence: number, options: any) {
+async function analyzeWithMood(mood: string, confidence: number, options: any) {
     currentMood = mood;
     moodConfidence = confidence;
 
+    // Get the active editor
     const editor = vscode.window.activeTextEditor;
     if (!editor) {
         vscode.window.showWarningMessage('No active editor found');
@@ -330,42 +335,129 @@ function analyzeWithMood(mood: string, confidence: number, options: any) {
         return;
     }
 
-    const text = editor.document.getText();
-    const issues = analyzeCodeBasedOnMood(text, mood, options);
-
+    // Show loading state in the panel
     if (moodlintPanel) {
-        setTimeout(() => {
-            moodlintPanel?.webview.postMessage({    
+        moodlintPanel.webview.postMessage({
+            command: 'analysisStarted',
+            mood: mood
+        });
+    }
+
+    try {
+        // Get the document text and filename
+        const text = editor.document.getText();
+        const filename = path.basename(editor.document.uri.fsPath);
+        
+        // Check if agent interface is initialized
+        if (!agentInterface) {
+            vscode.window.showErrorMessage('Agent system not initialized properly');
+            return;
+        }
+        
+        // Use agent workflow to debug
+        const result = await agentInterface.debugCode(text, filename, mood);
+        
+        if (result.success && result.response) {
+            // Convert the agent response to an issue list for display
+            const issues = extractIssuesFromResponse(result.response, mood);
+            
+            // Send the results back to the webview
+            if (moodlintPanel) {
+                moodlintPanel.webview.postMessage({
+                    command: 'analysisComplete',
+                    results: { 
+                        mood,
+                        issues,
+                        fullResponse: result.response
+                    }
+                });
+            }
+        } else {
+            // Handle error case
+            vscode.window.showErrorMessage(`Debug failed: ${result.error || 'Unknown error'}`);
+            if (moodlintPanel) {
+                moodlintPanel.webview.postMessage({
+                    command: 'analysisComplete',
+                    results: { 
+                        mood, 
+                        issues: [], 
+                        error: result.error 
+                    }
+                });
+            }
+        }
+    } catch (error) {
+        console.error('[Extension] Error during analysis:', error);
+        vscode.window.showErrorMessage(`Analysis error: ${error instanceof Error ? error.message : String(error)}`);
+        
+        if (moodlintPanel) {
+            moodlintPanel.webview.postMessage({
                 command: 'analysisComplete',
-                results: { mood, issues }
+                results: { 
+                    mood, 
+                    issues: [], 
+                    error: error instanceof Error ? error.message : String(error) 
+                }
             });
-        }, 2000);
+        }
     }
 }
 
 /**
- * Placeholder for code analysis
+ * Extract issues from the agent's text response
  */
-function analyzeCodeBasedOnMood(code: string, mood: string, options: any): any[] {
+function extractIssuesFromResponse(response: string, mood: string): any[] {
     const issues = [];
-    switch (mood) {
-        case 'happy':
-            issues.push({ line: 10, message: 'Great job! Add comments?', severity: 'info' });
-            break;
-        case 'focused':
-            issues.push({ line: 10, message: 'Optimize this.', severity: 'warning' });
-            break;
-        case 'tired':
-            issues.push({ line: 15, message: 'Potential leak.', severity: 'error' });
-            break;
-        default:
-            issues.push({ line: 10, message: 'General tip.', severity: 'info' });
+    
+    // Simple regex to find line references
+    const lineRegex = /[Ll]ine\s+(\d+):?\s+([^\.]+)/g;
+    let match;
+    
+    while ((match = lineRegex.exec(response)) !== null) {
+        const line = parseInt(match[1], 10);
+        const message = match[2].trim();
+        
+        // Determine severity based on content
+        let severity = 'info';
+        const lowerMessage = message.toLowerCase();
+        if (lowerMessage.includes('error') || lowerMessage.includes('critical') || lowerMessage.includes('fail')) {
+            severity = 'error';
+        } else if (lowerMessage.includes('warning') || lowerMessage.includes('caution') || lowerMessage.includes('consider')) {
+            severity = 'warning';
+        }
+        
+        issues.push({ line, message, severity });
     }
+    
+    // If no issues were found with the regex, create at least one general issue
+    if (issues.length === 0) {
+        // Try to find the first paragraph as a summary
+        const paragraphs = response.split('\n\n');
+        const summary = paragraphs[0] || 'Code analyzed based on your mood';
+        
+        issues.push({
+            line: 1,
+            message: summary,
+            severity: 'info'
+        });
+    }
+    
     return issues;
 }
 
 export function activate(context: vscode.ExtensionContext) {
     console.log('[Extension] MoodLint activated');
+    
+    // Initialize the agent interface
+    agentInterface = new AgentInterface(context.extensionPath);
+    
+    // Check agent installation and install dependencies if needed
+    agentInterface.checkAgentInstallation().then(isInstalled => {
+        if (!isInstalled) {
+            vscode.window.showWarningMessage('MoodLint agent system not fully installed. Some features may not work.');
+        }
+    });
+    
     const disposable = vscode.commands.registerCommand('moodlint.helloWorld', () => {
         createMoodlintPanel(context);
     });
