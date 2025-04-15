@@ -5,6 +5,7 @@ import sys
 import json
 import os
 import time
+import random
 
 try:
     import tkinter as tk
@@ -182,42 +183,47 @@ class CameraApp:
         else:
             self.start_camera()
     
-    def update_frame(self):
-        if not self.camera_active:
-            return
+    # Modify the update_frame method to send more frequent updates with higher confidence:
+
+def update_frame(self):
+    if not self.camera_active:
+        return
+        
+    try:
+        ret, frame = self.camera.read()
+        
+        if ret:
+            # Convert frame from BGR (OpenCV format) to RGB (PIL format)
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             
-        try:
-            ret, frame = self.camera.read()
+            # Create PIL image
+            pil_image = Image.fromarray(frame_rgb)
             
-            if ret:
-                # Convert frame from BGR (OpenCV format) to RGB (PIL format)
-                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                
-                # Create PIL image
-                pil_image = Image.fromarray(frame_rgb)
-                
-                # Convert PIL image to PhotoImage
-                self.current_frame = ImageTk.PhotoImage(image=pil_image)
-                
-                # Clear canvas and display image
-                self.canvas.delete("all")
-                self.canvas.create_image(320, 240, image=self.current_frame, anchor=tk.CENTER)
-                
-                # Send mock detection data (you can add actual detection code here)
-                # For now, we'll just print to stdout as a placeholder
-                if time.time() % 5 < 0.1:  # Approximately every 5 seconds
-                    print(json.dumps({"mood": "focused", "confidence": 0.85}), flush=True)
-                
-                # Schedule next update
-                self.after_id = self.root.after(33, self.update_frame)  # ~30 FPS
-            else:
-                # Camera capture failed
-                print(json.dumps({"error": "Failed to capture frame"}), flush=True)
-                self.stop_camera()
-                
-        except Exception as e:
-            print(json.dumps({"error": f"Frame update error: {str(e)}"}), flush=True)
+            # Convert PIL image to PhotoImage
+            self.current_frame = ImageTk.PhotoImage(image=pil_image)
+            
+            # Clear canvas and display image
+            self.canvas.delete("all")
+            self.canvas.create_image(320, 240, image=self.current_frame, anchor=tk.CENTER)
+            
+            # Send mock detection data more frequently (every 2 seconds) with higher confidence
+            if time.time() % 2 < 0.1:  # Approximately every 2 seconds
+                # Choose one of the five moods randomly
+                moods = ["happy", "frustrated", "exhausted", "sad", "angry"]
+                selected_mood = random.choice(moods)
+                # Always send high confidence (0.9) to ensure button enables
+                print(json.dumps({"mood": selected_mood, "confidence": 0.9}), flush=True)
+            
+            # Schedule next update
+            self.after_id = self.root.after(33, self.update_frame)  # ~30 FPS
+        else:
+            # Camera capture failed
+            print(json.dumps({"error": "Failed to capture frame"}), flush=True)
             self.stop_camera()
+            
+    except Exception as e:
+        print(json.dumps({"error": f"Frame update error: {str(e)}"}), flush=True)
+        self.stop_camera()
     
     def run_opencv_loop(self):
         """Run camera loop for OpenCV window mode"""
