@@ -1,0 +1,16 @@
+opencv-python
+pillow
+tk
+gitpython 
+diffusers 
+pillow 
+torch 
+google-generativeai
+langchain
+langchain-core
+langgraph
+google-generativeai
+pydantic
+python-dotenv
+fastapi
+uvicorn
