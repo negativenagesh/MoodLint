@@ -2,12 +2,12 @@ import os
 from typing import Dict, Any, Optional, Union
 from pathlib import Path
 
-from mood_agents.happy_agent import HappyAgent
-from mood_agents.frustrated_agent import FrustratedAgent
-from mood_agents.exhausted_agent import ExhaustedAgent
-from mood_agents.sad_agent import SadAgent
-from mood_agents.angry_agent import AngryAgent
-from mood_agents.base_agent import MoodAgent
+from .mood_agents.happy_agent import HappyAgent
+from .mood_agents.frustrated_agent import FrustratedAgent
+from .mood_agents.exhausted_agent import ExhaustedAgent
+from .mood_agents.sad_agent import SadAgent
+from .mood_agents.angry_agent import AngryAgent
+from .mood_agents.base_agent import MoodAgent
 
 class AgentManager:
     """Manages mood-specific debugging agents."""
