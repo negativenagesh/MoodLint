@@ -1,6 +1,6 @@
 import os
 import json
-from typing import Dict, Any, List, Optional, Union
+from typing import Dict, Any, List, Optional, Union, TypedDict
 from pathlib import Path
 import asyncio
 import sys
@@ -8,10 +8,11 @@ import sys
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from langgraph import graph
+# Updated import for LangGraph
+from langgraph.graph import StateGraph
 from langchain_core.messages import HumanMessage, AIMessage
 from pydantic import BaseModel, Field
-from .agent_manager import AgentManager  
+from .agent_manager import AgentManager
 
 class DebugRequest(BaseModel):
     """Model for debug request."""
@@ -33,10 +34,10 @@ def create_workflow():
     # Create the agent manager
     agent_manager = AgentManager()
     
-    # Define workflow components
-    @graph.node
-    def preprocess_request(request: DebugRequest) -> Dict[str, Any]:
+    # Define workflow components as regular functions (no decorators)
+    def preprocess_request(state: Dict[str, Any]) -> Dict[str, Any]:
         """Preprocess the debugging request."""
+        request = state["input"]
         return {
             "code": request.code,
             "filename": request.filename,
@@ -45,7 +46,6 @@ def create_workflow():
             "normalized_mood": agent_manager.normalize_mood(request.mood)
         }
     
-    @graph.node
     def debug_with_agent(state: Dict[str, Any]) -> Dict[str, Any]:
         """Debug code using the appropriate mood agent."""
         result = agent_manager.debug_code(
@@ -56,42 +56,43 @@ def create_workflow():
         )
         return {**state, "result": result}
     
-    @graph.node
-    def format_response(state: Dict[str, Any]) -> DebugResponse:
+    def format_response(state: Dict[str, Any]) -> Dict[str, Any]:
         """Format the final response."""
         result = state.get("result", {})
         
         if result.get("success", False):
-            return DebugResponse(
+            return {"output": DebugResponse(
                 success=True,
                 mood=result.get("mood", state.get("normalized_mood", "unknown")),
                 response=result.get("response", "No response generated"),
                 error=None
-            )
+            )}
         else:
-            return DebugResponse(
+            return {"output": DebugResponse(
                 success=False,
                 mood=result.get("mood", state.get("normalized_mood", "unknown")),
                 response=None,
                 error=result.get("error", "Unknown error occurred")
-            )
+            )}
     
-    # Build the workflow graph
-    workflow = graph.Graph()
+    # Build the workflow graph using StateGraph without state_type parameter
+    workflow = StateGraph(input=DebugRequest, output=DebugResponse)    
+    # Add nodes to the graph
     workflow.add_node("preprocess", preprocess_request)
     workflow.add_node("debug", debug_with_agent)
     workflow.add_node("format", format_response)
+    
+    # Set the entry point
+    workflow.set_entry_point("preprocess")
     
     # Define edges
     workflow.add_edge("preprocess", "debug")
     workflow.add_edge("debug", "format")
     
     # Compile the graph
-    compiled = workflow.compile()
-    
-    return compiled
+    return workflow.compile()
 
-# API interface
+# Add the missing debug_code function
 async def debug_code(
     code: str,
     filename: str,
@@ -103,7 +104,7 @@ async def debug_code(
     
     Args:
         code: Source code to debug
-        filename: Filename/path of the code
+        filename: Filename of the code
         mood: User's current mood
         query: Optional specific query about the code
         
@@ -112,6 +113,7 @@ async def debug_code(
     """
     workflow = create_workflow()
     
+    # Make sure we're creating the request with all required fields
     request = DebugRequest(
         code=code,
         filename=filename,
@@ -120,43 +122,30 @@ async def debug_code(
     )
     
     # Run the workflow with the request
-    config = {"artifacts": {"debug_logs": True}}
-    result = await workflow.ainvoke(request, config=config)
+    try:
+        result = await workflow.ainvoke({"input": request})
+        
+        # Extract the result from the final output
+        response = result["output"]
+        
+        if isinstance(response, DebugResponse):
+            return response.dict()
+        return response
+    except Exception as e:
+        # Return error information for debugging
+        return {
+            "success": False,
+            "error": f"Workflow error: {str(e)}",
+            "mood": mood,
+            "response": None
+        }
     
-    # Extract the result from the final node
-    response = result[("format", 0)]
+    # Run the workflow with the request
+    result = await workflow.ainvoke({"input": request})
     
-    return response.dict()
-
-# Command-line interface for testing
-if __name__ == "__main__":
-    import argparse
+    # Extract the result from the final output
+    response = result["output"]
     
-    parser = argparse.ArgumentParser(description="Debug code with mood-aware agents")
-    parser.add_argument("--file", "-f", type=str, help="Path to the file to debug")
-    parser.add_argument("--mood", "-m", type=str, default="focused", 
-                      help="User mood (happy, frustrated, exhausted, sad, angry)")
-    parser.add_argument("--query", "-q", type=str, default="", 
-                      help="Specific query about the code")
-    
-    args = parser.parse_args()
-    
-    if not args.file:
-        print("Error: Please provide a file path with --file")
-        sys.exit(1)
-    
-    # Read the file
-    file_path = Path(args.file)
-    if not file_path.exists():
-        print(f"Error: File {args.file} does not exist")
-        sys.exit(1)
-    
-    code = file_path.read_text()
-    filename = file_path.name
-    
-    # Run the workflow
-    async def main():
-        result = await debug_code(code, filename, args.mood, args.query)
-        print(json.dumps(result, indent=2))
-    
-    asyncio.run(main())
+    if isinstance(response, DebugResponse):
+        return response.dict()
+    return response
