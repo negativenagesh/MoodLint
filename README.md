@@ -63,6 +63,16 @@ MoodLint uses GANs (Generative Adversarial Networks) to create animated, artisti
 Why It’s Needed:
 Monotony can lower arousal and decrease performance. Visualizations help counter this by making debugging more stimulating and enjoyable. Positive moods are linked to increased creativity, enabling programmers to approach bugs with fresh perspectives.
 
+## Agent popup
+
+```sh
+
+python3 popup/agent_popup.py <path_to_code_file> <filename> <mood> [optional_query]
+
+python3 popup/agent_popup.py ./agents/workflow.py workflow.py happy
+
+```
+
 ## Features
 
 MoodLint redefines debugging and code comprehension by aligning technical assistance with your emotional state and visual learning preferences. Below are its core features, each accompanied by detailed descriptions and placeholders for illustrative screenshots:
