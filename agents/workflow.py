@@ -11,10 +11,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from langgraph import graph
 from langchain_core.messages import HumanMessage, AIMessage
 from pydantic import BaseModel, Field
+from .agent_manager import AgentManager  
 
-from agent_manager import AgentManager
-
-# Input/output models
 class DebugRequest(BaseModel):
     """Model for debug request."""
     code: str = Field(..., description="Source code to debug")
