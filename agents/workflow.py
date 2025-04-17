@@ -1,229 +1,409 @@
-import os
+import tkinter as tk
+from tkinter import ttk, scrolledtext, filedialog, messagebox
 import json
-from typing import Dict, Any, Optional
-from pathlib import Path
-import asyncio
 import sys
+import threading
+import time
+import os
+import asyncio
 import traceback
+
+from dotenv import load_dotenv
 
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from langgraph.graph import StateGraph
-from langchain_core.messages import HumanMessage, AIMessage
-from pydantic import BaseModel, Field
-from .agent_manager import AgentManager
-from .utils.gemini_client import GeminiClient  # Import the GeminiClient directly
+# Import the debug_code function from the agent workflow
+from agents.workflow import debug_code
 
-class DebugRequest(BaseModel):
-    code: str = Field(..., description="Source code to debug")
-    filename: str = Field(..., description="Filename of the code")
-    mood: str = Field(..., description="User's current mood")
-    query: Optional[str] = Field(None, description="Specific user query about the code")
+class AgentDebugApp:
+    def __init__(self, root, mood, query=""):
+        self.root = root
+        self.mood = mood
+        self.query = query
+        self.is_complete = False
+        self.code = ""
+        self.filename = ""
+        self.selected_files = []
+        
+        # Set up the UI
+        self.setup_ui()
 
-class DebugResponse(BaseModel):
-    success: bool = Field(..., description="Whether the operation was successful")
-    mood: str = Field(..., description="The mood used for debugging")
-    response: Optional[str] = Field(None, description="The debugging response")
-    error: Optional[str] = Field(None, description="Error message if any")
+    def setup_ui(self):
+        self.root.title(f"MoodLint Agent - {self.mood.capitalize()} Mode")
+        self.root.geometry("800x700")
+        self.root.minsize(700, 600)
+        
+        # Make window appear on top
+        self.root.attributes('-topmost', True)
+        self.root.update()
+        self.root.attributes('-topmost', False)
+        
+        # Center window on screen
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        x = (screen_width - 800) // 2
+        y = (screen_height - 700) // 2
+        self.root.geometry(f"+{x}+{y}")
+        
+        # Configure style
+        style = ttk.Style()
+        style.configure('Header.TLabel', font=('Arial', 16, 'bold'))
+        style.configure('Mood.TLabel', font=('Arial', 12), foreground=self.get_mood_color())
+        
+        # Create main container
+        main_frame = ttk.Frame(self.root, padding=20)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Create header
+        header_frame = ttk.Frame(main_frame)
+        header_frame.pack(fill=tk.X, pady=(0, 15))
+        
+        ttk.Label(header_frame, text="MoodLint Debugging Assistant", style='Header.TLabel').pack(side=tk.LEFT)
+        self.mood_label = ttk.Label(header_frame, text=f"Mood: {self.mood.capitalize()}", style='Mood.TLabel')
+        self.mood_label.pack(side=tk.RIGHT)
+        
+        # File selection section
+        file_select_frame = ttk.LabelFrame(main_frame, text="Select Files")
+        file_select_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        file_buttons_frame = ttk.Frame(file_select_frame)
+        file_buttons_frame.pack(fill=tk.X, pady=5, padx=5)
+        
+        ttk.Button(file_buttons_frame, text="Add Files", command=self.add_files).pack(side=tk.LEFT, padx=5)
+        ttk.Button(file_buttons_frame, text="Clear Files", command=self.clear_files).pack(side=tk.LEFT, padx=5)
+        
+        # File listbox
+        self.file_list = tk.Listbox(file_select_frame, height=4)
+        self.file_list.pack(fill=tk.X, expand=True, pady=5, padx=5)
+        
+        # Query input
+        query_frame = ttk.LabelFrame(main_frame, text="Enter Your Query")
+        query_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        self.query_input = scrolledtext.ScrolledText(query_frame, height=3, wrap=tk.WORD)
+        self.query_input.pack(fill=tk.X, expand=True, pady=5, padx=5)
+        if self.query:
+            self.query_input.insert(tk.END, self.query)
+        
+        # Analyze button
+        analyze_frame = ttk.Frame(main_frame)
+        analyze_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        self.analyze_btn = ttk.Button(analyze_frame, text="Analyze Selected Files", command=self.run_analysis)
+        self.analyze_btn.pack(anchor=tk.CENTER, pady=5)
+        
+        # Create progress frame
+        self.progress_frame = ttk.Frame(main_frame)
+        self.progress_frame.pack(fill=tk.X, pady=10)
+        
+        self.progress_var = tk.StringVar(value="Ready to analyze")
+        self.progress_label = ttk.Label(self.progress_frame, textvariable=self.progress_var)
+        self.progress_label.pack(side=tk.LEFT)
+        
+        self.progress_dots = tk.StringVar(value="")
+        self.progress_dots_label = ttk.Label(self.progress_frame, textvariable=self.progress_dots)
+        self.progress_dots_label.pack(side=tk.LEFT)
+        
+        # Create result text area
+        result_frame = ttk.LabelFrame(main_frame, text="Analysis Results")
+        result_frame.pack(fill=tk.BOTH, expand=True, pady=10)
+        
+        self.result_text = scrolledtext.ScrolledText(result_frame, wrap=tk.WORD, height=20)
+        self.result_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        self.result_text.config(state=tk.DISABLED)
+        
+        # Create buttons
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        self.close_button = ttk.Button(button_frame, text="Close", command=self.on_close)
+        self.close_button.pack(side=tk.RIGHT)
 
-def create_workflow():
-    # Verify API key is available before creating agent manager
-    api_key = os.environ.get("GOOGLE_API_KEY")
-    if not api_key:
-        raise ValueError("GOOGLE_API_KEY environment variable is not set. Please set it before running.")
+    def get_mood_color(self):
+        mood_colors = {
+            "happy": "#4CAF50",    # Green
+            "frustrated": "#FF9800", # Orange
+            "exhausted": "#9C27B0", # Purple
+            "sad": "#2196F3",       # Blue
+            "angry": "#F44336"      # Red
+        }
+        return mood_colors.get(self.mood.lower(), "#000000")
     
-    agent_manager = AgentManager()
-
-    # Accepts DebugRequest, returns dict
-    def preprocess_request(state):
-        try:
-            # Handle both DebugRequest and dict inputs
-            if isinstance(state, DebugRequest):
-                return {
-                    "code": state.code,
-                    "filename": state.filename,
-                    "mood": state.mood.lower().strip(),
-                    "query": state.query or "",
-                    "normalized_mood": agent_manager.normalize_mood(state.mood)
-                }
-            return state
-        except Exception as e:
-            print(f"Error in preprocess_request: {str(e)}")
-            return {
-                "error": f"Preprocessing error: {str(e)}",
-                "traceback": traceback.format_exc()
-            }
-
-    # Accepts dict or DebugRequest, returns dict
-    # In the debug_with_agent function, around line 83, modify this section:
-
-    def debug_with_agent(state):
-        try:
-            # Check if there was an error in previous step
-            if "error" in state:
-                return state
-                    
-            # Convert to dict if it's a DebugRequest
-            if isinstance(state, DebugRequest):
-                state = preprocess_request(state)
-    
-            # Safely access state values with fallbacks
-            code = state["code"] if "code" in state else ""
-            filename = state["filename"] if "filename" in state else "unknown.py"
-            mood = state.get("normalized_mood", agent_manager.normalize_mood(state.get("mood", "neutral")))
-            query = state.get("query", "")
-    
-            # Validate inputs - prevent empty or very large code
-            if not code:
-                raise ValueError("No code provided for analysis")
-            if len(code) > 1000000:  # 1MB limit
-                raise ValueError("Code file too large for analysis")
-    
-            print(f"Debug with agent: mood={mood}, filename={filename}")
-            
-            # Add explicit try-except block for agent debugging
-            try:
-                result = agent_manager.debug_code(
-                    code=code,
-                    filename=filename,
-                    mood=mood,
-                    user_query=query
-                )
-                
-                # Detailed validation of result
-                if result is None:
-                    raise ValueError("Agent returned None result")
-                
-                if not isinstance(result, dict):
-                    raise ValueError(f"Expected dict result, got {type(result).__name__}")
-                
-                return {**state, "result": result}
-            except Exception as agent_error:
-                print(f"Agent execution error: {str(agent_error)}")
-                error_trace = traceback.format_exc()
-                print(f"Agent error traceback: {error_trace}")
-                return {
-                    **state,
-                    "result": {
-                        "success": False,
-                        "error": f"Agent execution error: {str(agent_error)}",
-                        "traceback": error_trace
-                    }
-                }
-        except Exception as e:
-            print(f"Outer error in debug_with_agent: {str(e)}")
-            error_trace = traceback.format_exc()
-            return {
-                "error": f"Error in code processing: {str(e)}",
-                "traceback": error_trace
-            }
-
-    # Accepts dict, returns dict with DebugResponse
-    def format_response(state):
-        try:
-            # Convert to dict if it's a DebugRequest
-            if isinstance(state, DebugRequest):
-                state = preprocess_request(state)
-                
-            # Check if there was an error in previous steps
-            if "error" in state and "result" not in state:
-                error_message = state["error"]
-                print(f"Error detected in state: {error_message}")
-                return {"output": DebugResponse(
-                    success=False,
-                    mood="unknown",
-                    response=f"I encountered an error while analyzing your code: {error_message}",
-                    error=state["error"] + "\n" + state.get("traceback", "")
-                )}
-                
-            result = state.get("result", {})
-            print(f"Result keys from agent: {result.keys()}")
-            
-            if result.get("success", False):
-                # Make sure we include the response
-                response = result.get("response", "No response generated")
-                print(f"Successful response from agent, length: {len(response)}")
-                return {"output": DebugResponse(
-                    success=True,
-                    mood=result.get("mood", state.get("normalized_mood", state.get("mood", "unknown"))),
-                    response=response,
-                    error=None
-                )}
-            else:
-                error_msg = result.get("error", "Unknown error occurred")
-                response = result.get("response")
-                print(f"Error in result: {error_msg}")
-                
-                if not response:
-                    response = f"I couldn't fully analyze your code due to an error: {error_msg}"
-                
-                return {"output": DebugResponse(
-                    success=False,
-                    mood=result.get("mood", state.get("normalized_mood", state.get("mood", "unknown"))),
-                    response=response,
-                    error=error_msg
-                )}
-        except Exception as e:
-            print(f"Error in format_response: {str(e)}")
-            return {"output": DebugResponse(
-                success=False,
-                mood="unknown",
-                response=f"An unexpected error occurred while processing your request: {str(e)}",
-                error=f"Formatting error: {str(e)}\n{traceback.format_exc()}"
-            )}
-
-    workflow = StateGraph(input=DebugRequest, output=DebugResponse)
-    workflow.add_node("preprocess", preprocess_request)
-    workflow.add_node("debug", debug_with_agent)
-    workflow.add_node("format", format_response)
-    workflow.set_entry_point("preprocess")
-    workflow.add_edge("preprocess", "debug")
-    workflow.add_edge("debug", "format")
-    return workflow.compile()
-
-async def debug_code(
-    code: str,
-    filename: str,
-    mood: str,
-    query: Optional[str] = None
-) -> Dict[str, Any]:
-    try:
-        # Check API key first
-        if not os.environ.get("GOOGLE_API_KEY"):
-            return {
-                "success": False,
-                "error": "GOOGLE_API_KEY environment variable is not set. Please set it before running.",
-                "mood": mood,
-                "response": None
-            }
-            
-        workflow = create_workflow()
-        request = DebugRequest(
-            code=code,
-            filename=filename,
-            mood=mood,
-            query=query
+    def add_files(self):
+        """Open file dialog and add selected files to the list"""
+        filetypes = [
+            ("Python files", "*.py"),
+            ("JavaScript files", "*.js"),
+            ("TypeScript files", "*.ts"),
+            ("All files", "*.*")
+        ]
+        
+        files = filedialog.askopenfilenames(
+            title="Select Files to Analyze",
+            filetypes=filetypes
         )
         
-        print(f"Invoking workflow with request for file: {filename}, mood: {mood}")
-        result = await workflow.ainvoke(request)
-        response = result["output"] if "output" in result else result
+        if files:
+            for file_path in files:
+                if file_path not in self.selected_files:
+                    self.selected_files.append(file_path)
+                    self.file_list.insert(tk.END, os.path.basename(file_path))
+    
+    def clear_files(self):
+        """Clear all files from the list"""
+        self.selected_files = []
+        self.file_list.delete(0, tk.END)
+    
+    def update_progress(self):
+        """Update the progress animation"""
+        if not self.is_complete:
+            # Update the dots animation
+            dots = self.progress_dots.get()
+            if len(dots) >= 3:
+                dots = ""
+            else:
+                dots += "."
+            self.progress_dots.set(dots)
+            
+            # Schedule the next update
+            self.root.after(500, self.update_progress)
+    
+    def run_analysis(self):
+        """Run analysis on selected files"""
+        # Check if files are selected
+        if not self.selected_files:
+            messagebox.showwarning("No Files Selected", "Please select at least one file to analyze.")
+            return
         
-        if isinstance(response, DebugResponse):
-            # For Pydantic v1
-            if hasattr(response, "dict"):
-                return response.dict()
-            # For Pydantic v2
-            return response.model_dump()
-        return response
+        # Get the selected index from the listbox
+        selected_idx = self.file_list.curselection()
+        if not selected_idx:
+            messagebox.showwarning("No File Selected", "Please select a file from the list.")
+            return
+        
+        selected_idx = selected_idx[0]
+        file_path = self.selected_files[selected_idx]
+        self.filename = os.path.basename(file_path)
+        
+        # Read the selected file
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                self.code = f.read()
+                print(f"Successfully read file: {file_path}, length: {len(self.code)}")
+        except Exception as e:
+            error_traceback = traceback.format_exc()
+            print(f"Error reading file: {str(e)}\n{error_traceback}")
+            messagebox.showerror("Error", f"Could not read file: {str(e)}")
+            return
+        
+        # Get the query
+        self.query = self.query_input.get("1.0", tk.END).strip()
+        print(f"Query: '{self.query}'")
+        
+        # Check API key
+        if not os.environ.get("GOOGLE_API_KEY"):
+            api_key_error = "GOOGLE_API_KEY is not set in environment variables"
+            print(api_key_error)
+            messagebox.showerror("API Key Error", 
+                "Google API Key is not set. Please add it to your .env file or environment variables.")
+            return
+        
+        # Start analysis
+        self.is_complete = False
+        self.progress_var.set("Analyzing code...")
+        self.progress_dots.set("")
+        self.analyze_btn.config(state=tk.DISABLED)
+        self.update_progress()
+        
+        # Log analysis start
+        print(f"Starting analysis of {self.filename} with mood: {self.mood}")
+        
+        # Start agent processing in a separate thread
+        self.agent_thread = threading.Thread(target=self.run_agent_workflow)
+        self.agent_thread.daemon = True
+        self.agent_thread.start()
+    
+    def run_agent_workflow(self):
+        """Run the agent workflow in a separate thread"""
+        try:
+            print(f"Starting agent workflow thread")
+            
+            # Create event loop for async function
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+            print(f"Calling debug_code with: filename={self.filename}, mood={self.mood}, code length={len(self.code)}")
+            
+            # Run debug_code function
+            result = loop.run_until_complete(debug_code(
+                code=self.code,
+                filename=self.filename,
+                mood=self.mood,
+                query=self.query
+            ))
+            
+            print(f"Debug code completed, result: {result.keys() if isinstance(result, dict) else 'not a dict'}")
+            
+            # Update UI with results
+            self.root.after(0, lambda: self.update_results(result))
+        except Exception as e:
+            error_traceback = traceback.format_exc()
+            print(f"Error during analysis: {str(e)}\n{error_traceback}")
+            # Handle errors
+            error_message = f"Error during analysis: {str(e)}\n\nDetails: {error_traceback}"
+            self.root.after(0, lambda: self.update_error(error_message))
+    
+    def update_status(self, message):
+        """Update the status label"""
+        self.root.after(0, lambda: self.progress_var.set(message))
+    
+    def update_results(self, result):
+        """Update the results panel with agent output"""
+        self.is_complete = True
+        self.progress_var.set("Analysis complete")
+        self.progress_dots.set("")
+        self.analyze_btn.config(state=tk.NORMAL)
+        
+        # Enable text widget for editing
+        self.result_text.config(state=tk.NORMAL)
+        
+        # Clear any existing text
+        self.result_text.delete(1.0, tk.END)
+        
+        print(f"Result keys: {result.keys() if isinstance(result, dict) else 'not a dict'}")
+        
+        # More thorough response extraction logic
+        response_text = None
+        error_message = None
+        
+        if isinstance(result, dict):
+            # 1. Direct response in result
+            if "response" in result:
+                response_text = result["response"]
+                print(f"Found response directly in result, length: {len(response_text)}")
+            
+            # 2. Error in result
+            if "error" in result:
+                error_message = result["error"]
+                print(f"Found error in result: {error_message}")
+            
+            # 3. Response in output
+            elif isinstance(result.get("output"), dict):
+                output = result["output"]
+                print(f"Output keys: {output.keys()}")
+                if "response" in output:
+                    response_text = output["response"]
+                    print(f"Found response in output, length: {len(response_text)}")
+                if "error" in output:
+                    error_message = output["error"]
+                    print(f"Found error in output: {error_message}")
+                    
+            # 4. Response in nested result
+            elif isinstance(result.get("result"), dict):
+                nested = result["result"]
+                print(f"Nested result keys: {nested.keys()}")
+                if "response" in nested:
+                    response_text = nested["response"]
+                    print(f"Found response in nested result, length: {len(response_text)}")
+                if "error" in nested:
+                    error_message = nested["error"]
+                    print(f"Found error in nested result: {error_message}")
+        
+        # Display the response or create a query-aware fallback
+        if response_text:
+            self.result_text.insert(tk.END, response_text)
+        else:
+            query_context = f" with query: '{self.query}'" if self.query else ""
+            fallback = f"I'm analyzing your {self.filename} file as a {self.mood} developer{query_context}.\n\n"
+            
+            if error_message:
+                self.result_text.insert(tk.END, f"Error: {error_message}\n\n{fallback}")
+            else:
+                self.result_text.insert(tk.END, fallback)
+                self.result_text.insert(tk.END, "\nHowever, I couldn't generate a specific analysis. This might be due to an issue with the Gemini API connection or response format.")
+                self.result_text.insert(tk.END, "\n\nPlease check the Python console for more detailed error information.")
+        
+        # Disable editing
+        self.result_text.config(state=tk.DISABLED)
+        
+        # Scroll to the top
+        self.result_text.see("1.0")
+        
+        # Send result back to VSCode via stdout
+        print(json.dumps({"status": "complete", "result": result if isinstance(result, dict) else {"error": "Invalid result format"}}), flush=True)
+    
+    def update_error(self, error_message):
+        """Display an error in the results panel"""
+        self.is_complete = True
+        self.progress_var.set("Analysis failed")
+        self.progress_dots.set("")
+        self.analyze_btn.config(state=tk.NORMAL)
+        
+        # Enable text widget for editing
+        self.result_text.config(state=tk.NORMAL)
+        
+        # Clear any existing text
+        self.result_text.delete(1.0, tk.END)
+        
+        # Insert the error message
+        self.result_text.insert(tk.END, error_message)
+        
+        # Disable editing
+        self.result_text.config(state=tk.DISABLED)
+        
+        # Send error back to VSCode via stdout
+        print(json.dumps({"status": "error", "message": error_message}), flush=True)
+    
+    def on_close(self):
+        """Handle window close"""
+        if not self.is_complete:
+            print(json.dumps({"status": "canceled"}), flush=True)
+        self.root.destroy()
+        sys.exit(0)
+
+def main():
+    """Main function to parse arguments and start the application"""
+
+    load_dotenv()
+    
+    # Check if API key is available and print it (obscured)
+    api_key = os.environ.get("GOOGLE_API_KEY", "")
+    if api_key:
+        masked_key = api_key[:4] + "*" * (len(api_key) - 8) + api_key[-4:] if len(api_key) > 8 else "****"
+        print(f"GOOGLE_API_KEY found, starts with {api_key[:4]}...")
+    else:
+        print(json.dumps({
+            "status": "error", 
+            "message": "GOOGLE_API_KEY environment variable is not set. Please set it or add it to .env file."
+        }), flush=True)
+        sys.exit(1)
+
+    if len(sys.argv) < 2:
+        print(json.dumps({
+            "status": "error", 
+            "message": "Usage: agent_popup.py <mood> [query]"
+        }), flush=True)
+        sys.exit(1)
+    
+    mood = sys.argv[1]
+    query = sys.argv[2] if len(sys.argv) > 2 else ""
+    
+    # Initialize the UI
+    print(json.dumps({"status": "starting"}), flush=True)
+    
+    root = tk.Tk()
+    app = AgentDebugApp(root, mood, query)
+    
+    print(json.dumps({"status": "ready"}), flush=True)
+    
+    # Start the UI event loop
+    try:
+        root.mainloop()
     except Exception as e:
-        error_details = traceback.format_exc()
-        print(f"Workflow error: {str(e)}\n{error_details}")
-        return {
-            "success": False,
-            "error": f"Workflow error: {str(e)}",
-            "details": error_details,
-            "mood": mood,
-            "response": None
-        }
+        error_traceback = traceback.format_exc()
+        print(json.dumps({"status": "error", "message": f"UI error: {str(e)}\n{error_traceback}"}), flush=True)
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()
