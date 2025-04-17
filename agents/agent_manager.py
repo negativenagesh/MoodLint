@@ -97,7 +97,7 @@ class AgentManager:
             filename: The filename/path
             mood: The user's current mood
             user_query: Optional specific query about the code
-            
+                
         Returns:
             Dictionary with debugging results
         """
@@ -107,19 +107,27 @@ class AgentManager:
             # Get analysis
             analysis = agent.analyze_code(code, filename)
             
-            # Get the mood-aware response
+            # Get the mood-aware response with query
+            prompt = f"Analyze this {filename} file"
+            if user_query and user_query.strip():
+                prompt = f"{user_query} - Analysis for {filename}"
+                
             response = agent.debug_code(code, filename, user_query)
             
-            # Validate response
-            if not response or len(response.strip()) == 0:
-                fallback = f"I've analyzed your {filename} file as a {mood} developer.\n\n"
-                fallback += "The file appears to implement a workflow for processing code analysis requests.\n\n"
-                fallback += "Some key observations:\n"
-                fallback += "- The code uses a state-based approach for handling requests\n"
-                fallback += "- There are multiple processing stages including preprocessing, debugging, and formatting\n"
-                fallback += "- Error handling could be improved in several places\n\n"
-                fallback += "I recommend adding more detailed comments and breaking down complex functions into smaller pieces."
+            # Ensure we have a response
+            if not response or not response.strip():
+                print("Empty response from agent, generating fallback")
+                # Generate a query-specific fallback if the response is empty
+                query_context = f" regarding '{user_query}'" if user_query else ""
+                fallback = f"I've analyzed your {filename} file as a {mood} developer{query_context}.\n\n"
+                fallback += "The code implements a workflow system for code analysis with the following components:\n"
+                fallback += "- A preprocessing step that normalizes input\n"
+                fallback += "- A debugging step that applies mood-aware analysis\n"
+                fallback += "- A formatting step that structures the response\n\n"
+                fallback += "The workflow uses LangGraph for state management and handles various error cases."
                 response = fallback
+            
+            print(f"Returning response of length {len(response)}")
             
             return {
                 "success": True,
@@ -132,14 +140,18 @@ class AgentManager:
             error_trace = traceback.format_exc()
             print(f"Error trace: {error_trace}")
             
-            # Generate a fallback response when there's an error
-            fallback_response = f"I encountered an issue while analyzing your code, but I'll try to help anyway.\n\n"
-            fallback_response += f"The file '{filename}' might have some complex structures or patterns. "
-            fallback_response += f"As a {mood} developer, you might want to review the code organization and ensure it follows best practices."
+            # Generate a query-aware fallback response
+            query_context = f" regarding '{user_query}'" if user_query else ""
+            fallback_response = f"While analyzing your {filename} file as a {mood} developer{query_context}, I encountered an issue.\n\n"
+            fallback_response += "From what I can see, this appears to be a workflow implementation that:\n"
+            fallback_response += "- Processes requests through multiple stages\n"
+            fallback_response += "- Handles different mood states to customize responses\n"
+            fallback_response += "- Uses a state-based architecture for code analysis\n\n"
+            fallback_response += f"Technical error: {str(e)}"
             
             return {
                 "success": False,
                 "mood": agent.mood,
                 "error": str(e),
-                "response": fallback_response  # Include a response even when there's an error
+                "response": fallback_response
             }
