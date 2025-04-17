@@ -373,19 +373,6 @@ async function analyzeWithMood(mood: string, confidence: number, options: any) {
     currentMood = mood;
     moodConfidence = confidence;
 
-    // Get the active editor
-    const editor = vscode.window.activeTextEditor;
-    if (!editor) {
-        vscode.window.showWarningMessage('No active editor found');
-        if (moodlintPanel) {
-            moodlintPanel.webview.postMessage({
-                command: 'analysisComplete',
-                results: { mood, issues: [] }
-            });
-        }
-        return;
-    }
-
     // Show loading state in the panel
     if (moodlintPanel) {
         moodlintPanel.webview.postMessage({
@@ -395,20 +382,7 @@ async function analyzeWithMood(mood: string, confidence: number, options: any) {
     }
 
     try {
-        // Get the document text and filename
-        const text = editor.document.getText();
-        const filename = path.basename(editor.document.uri.fsPath);
-        
-        // Create a temporary file to hold the code
-        const tempDir = path.join(context.extensionPath, 'temp');
-        if (!fs.existsSync(tempDir)) {
-            fs.mkdirSync(tempDir, { recursive: true });
-        }
-        
-        const tempCodeFile = path.join(tempDir, `debug_code_${Date.now()}.txt`);
-        fs.writeFileSync(tempCodeFile, text);
-        
-        // Launch the Python agent popup
+        // Launch the Python agent popup directly without requiring an active editor
         const pythonPath = 'python3'; // or 'python' on some systems
         const scriptPath = path.join(context.extensionPath, 'popup', 'agent_popup.py');
         
@@ -421,11 +395,9 @@ async function analyzeWithMood(mood: string, confidence: number, options: any) {
             // Ignore chmod errors on Windows
         }
         
-        // Launch the agent popup process
+        // Launch the agent popup process - now just with mood and options
         const agentProcess = childProcess.spawn(pythonPath, [
             scriptPath, 
-            tempCodeFile, 
-            filename, 
             mood,
             options.query || ''
         ], {
@@ -458,14 +430,7 @@ async function analyzeWithMood(mood: string, confidence: number, options: any) {
                                 // Convert the agent response to an issue list for display
                                 const issues = extractIssuesFromResponse(agentResult.response, mood);
                                 
-                                // Also create the VS Code webview popup
-                                createDebugResultsPopup(
-                                    context,
-                                    mood,
-                                    agentResult.response
-                                );
-                                
-                                // Send the results back to the main webview
+                                // Also send the results back to the main webview
                                 if (moodlintPanel) {
                                     moodlintPanel.webview.postMessage({
                                         command: 'analysisComplete',
@@ -511,79 +476,19 @@ async function analyzeWithMood(mood: string, confidence: number, options: any) {
         agentProcess.on('close', (code) => {
             console.log(`[Extension] Agent popup exited with code ${code}`);
             
-            // Clean up the temporary file
-            try {
-                fs.unlinkSync(tempCodeFile);
-            } catch (err) {
-                console.error('[Extension] Error cleaning up temp file:', err);
-            }
-            
             // If the process failed to launch or exited with an error
             if (code !== 0) {
-                // Fall back to the regular agent interface
-                console.log('[Extension] Falling back to regular agent interface');
-                
-                // Check if agent interface is initialized
-                if (!agentInterface) {
-                    vscode.window.showErrorMessage('Agent system not initialized properly');
-                    return;
-                }
-                
-                // Use agent workflow to debug
-                agentInterface.debugCode(text, filename, mood)
-                    .then(result => {
-                        if (result.success && result.response) {
-                            // Convert the agent response to an issue list for display
-                            const issues = extractIssuesFromResponse(result.response, mood);
-                            
-                            // Create a popup with the debugging results
-                            createDebugResultsPopup(
-                                context,
-                                mood,
-                                result.response
-                            );
-                            
-                            // Also send the results back to the webview
-                            if (moodlintPanel) {
-                                moodlintPanel.webview.postMessage({
-                                    command: 'analysisComplete',
-                                    results: { 
-                                        mood,
-                                        issues,
-                                        fullResponse: result.response
-                                    }
-                                });
-                            }
-                        } else {
-                            // Handle error case
-                            vscode.window.showErrorMessage(`Debug failed: ${result.error || 'Unknown error'}`);
-                            if (moodlintPanel) {
-                                moodlintPanel.webview.postMessage({
-                                    command: 'analysisComplete',
-                                    results: { 
-                                        mood, 
-                                        issues: [], 
-                                        error: result.error 
-                                    }
-                                });
-                            }
-                        }
-                    })
-                    .catch(error => {
-                        console.error('[Extension] Error during fallback analysis:', error);
-                        vscode.window.showErrorMessage(`Analysis error: ${error instanceof Error ? error.message : String(error)}`);
-                        
-                        if (moodlintPanel) {
-                            moodlintPanel.webview.postMessage({
-                                command: 'analysisComplete',
-                                results: { 
-                                    mood, 
-                                    issues: [], 
-                                    error: error instanceof Error ? error.message : String(error) 
-                                }
-                            });
+                vscode.window.showErrorMessage(`Agent process exited with code ${code}`);
+                if (moodlintPanel) {
+                    moodlintPanel.webview.postMessage({
+                        command: 'analysisComplete',
+                        results: { 
+                            mood, 
+                            issues: [], 
+                            error: `Agent process exited with code ${code}` 
                         }
                     });
+                }
             }
         });
         
