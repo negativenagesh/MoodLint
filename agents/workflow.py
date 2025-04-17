@@ -1,151 +1,219 @@
 import os
 import json
-from typing import Dict, Any, List, Optional, Union, TypedDict
+from typing import Dict, Any, Optional
 from pathlib import Path
 import asyncio
 import sys
+import traceback
 
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Updated import for LangGraph
 from langgraph.graph import StateGraph
 from langchain_core.messages import HumanMessage, AIMessage
 from pydantic import BaseModel, Field
 from .agent_manager import AgentManager
+from .utils.gemini_client import GeminiClient  # Import the GeminiClient directly
 
 class DebugRequest(BaseModel):
-    """Model for debug request."""
     code: str = Field(..., description="Source code to debug")
     filename: str = Field(..., description="Filename of the code")
     mood: str = Field(..., description="User's current mood")
     query: Optional[str] = Field(None, description="Specific user query about the code")
 
 class DebugResponse(BaseModel):
-    """Model for debug response."""
     success: bool = Field(..., description="Whether the operation was successful")
     mood: str = Field(..., description="The mood used for debugging")
     response: Optional[str] = Field(None, description="The debugging response")
     error: Optional[str] = Field(None, description="Error message if any")
 
-# LangGraph workflow definition
 def create_workflow():
-    """Create the LangGraph debugging workflow."""
-    # Create the agent manager
+    # Verify API key is available before creating agent manager
+    api_key = os.environ.get("GOOGLE_API_KEY")
+    if not api_key:
+        raise ValueError("GOOGLE_API_KEY environment variable is not set. Please set it before running.")
+    
     agent_manager = AgentManager()
+
+    # Accepts DebugRequest, returns dict
+    def preprocess_request(state):
+        try:
+            # Handle both DebugRequest and dict inputs
+            if isinstance(state, DebugRequest):
+                return {
+                    "code": state.code,
+                    "filename": state.filename,
+                    "mood": state.mood.lower().strip(),
+                    "query": state.query or "",
+                    "normalized_mood": agent_manager.normalize_mood(state.mood)
+                }
+            return state
+        except Exception as e:
+            print(f"Error in preprocess_request: {str(e)}")
+            return {
+                "error": f"Preprocessing error: {str(e)}",
+                "traceback": traceback.format_exc()
+            }
+
+    # Accepts dict or DebugRequest, returns dict
+    # In the debug_with_agent function, around line 83, modify this section:
+
+    def debug_with_agent(state):
+        try:
+            # Check if there was an error in previous step
+            if "error" in state:
+                return state
+                    
+            # Convert to dict if it's a DebugRequest
+            if isinstance(state, DebugRequest):
+                state = preprocess_request(state)
     
-    # Define workflow components as regular functions (no decorators)
-    def preprocess_request(state: Dict[str, Any]) -> Dict[str, Any]:
-        """Preprocess the debugging request."""
-        request = state["input"]
-        return {
-            "code": request.code,
-            "filename": request.filename,
-            "mood": request.mood.lower().strip(),
-            "query": request.query or "",
-            "normalized_mood": agent_manager.normalize_mood(request.mood)
-        }
+            # Safely access state values with fallbacks
+            code = state["code"] if "code" in state else ""
+            filename = state["filename"] if "filename" in state else "unknown.py"
+            mood = state.get("normalized_mood", agent_manager.normalize_mood(state.get("mood", "neutral")))
+            query = state.get("query", "")
     
-    def debug_with_agent(state: Dict[str, Any]) -> Dict[str, Any]:
-        """Debug code using the appropriate mood agent."""
-        result = agent_manager.debug_code(
-            code=state["code"],
-            filename=state["filename"],
-            mood=state["normalized_mood"],
-            user_query=state["query"]
-        )
-        return {**state, "result": result}
+            # Validate inputs - prevent empty or very large code
+            if not code:
+                raise ValueError("No code provided for analysis")
+            if len(code) > 1000000:  # 1MB limit
+                raise ValueError("Code file too large for analysis")
     
-    def format_response(state: Dict[str, Any]) -> Dict[str, Any]:
-        """Format the final response."""
-        result = state.get("result", {})
-        
-        if result.get("success", False):
-            return {"output": DebugResponse(
-                success=True,
-                mood=result.get("mood", state.get("normalized_mood", "unknown")),
-                response=result.get("response", "No response generated"),
-                error=None
-            )}
-        else:
+            print(f"Debug with agent: mood={mood}, filename={filename}")
+            
+            # Add explicit try-except block for agent debugging
+            try:
+                result = agent_manager.debug_code(
+                    code=code,
+                    filename=filename,
+                    mood=mood,
+                    user_query=query
+                )
+                
+                # Detailed validation of result
+                if result is None:
+                    raise ValueError("Agent returned None result")
+                
+                if not isinstance(result, dict):
+                    raise ValueError(f"Expected dict result, got {type(result).__name__}")
+                
+                return {**state, "result": result}
+            except Exception as agent_error:
+                print(f"Agent execution error: {str(agent_error)}")
+                error_trace = traceback.format_exc()
+                print(f"Agent error traceback: {error_trace}")
+                return {
+                    **state,
+                    "result": {
+                        "success": False,
+                        "error": f"Agent execution error: {str(agent_error)}",
+                        "traceback": error_trace
+                    }
+                }
+        except Exception as e:
+            print(f"Outer error in debug_with_agent: {str(e)}")
+            error_trace = traceback.format_exc()
+            return {
+                "error": f"Error in code processing: {str(e)}",
+                "traceback": error_trace
+            }
+
+    # Accepts dict, returns dict with DebugResponse
+    def format_response(state):
+        try:
+            # Convert to dict if it's a DebugRequest
+            if isinstance(state, DebugRequest):
+                state = preprocess_request(state)
+                
+            # Check if there was an error in previous steps
+            if "error" in state and "result" not in state:
+                return {"output": DebugResponse(
+                    success=False,
+                    mood="unknown",
+                    response=None,
+                    error=state["error"] + "\n" + state.get("traceback", "")
+                )}
+                
+            result = state.get("result", {})
+            if result.get("success", False):
+                return {"output": DebugResponse(
+                    success=True,
+                    mood=result.get("mood", state.get("normalized_mood", state.get("mood", "unknown"))),
+                    response=result.get("response", "No response generated"),
+                    error=None
+                )}
+            else:
+                error_msg = result.get("error", "Unknown error occurred")
+                traceback_info = result.get("traceback", "")
+                print(f"Error details: {error_msg}\n{traceback_info}")
+                
+                return {"output": DebugResponse(
+                    success=False,
+                    mood=result.get("mood", state.get("normalized_mood", state.get("mood", "unknown"))),
+                    response=None,
+                    error=error_msg
+                )}
+        except Exception as e:
+            print(f"Error in format_response: {str(e)}")
             return {"output": DebugResponse(
                 success=False,
-                mood=result.get("mood", state.get("normalized_mood", "unknown")),
+                mood="unknown",
                 response=None,
-                error=result.get("error", "Unknown error occurred")
+                error=f"Formatting error: {str(e)}\n{traceback.format_exc()}"
             )}
-    
-    # Build the workflow graph using StateGraph without state_type parameter
-    workflow = StateGraph(input=DebugRequest, output=DebugResponse)    
-    # Add nodes to the graph
+
+    workflow = StateGraph(input=DebugRequest, output=DebugResponse)
     workflow.add_node("preprocess", preprocess_request)
     workflow.add_node("debug", debug_with_agent)
     workflow.add_node("format", format_response)
-    
-    # Set the entry point
     workflow.set_entry_point("preprocess")
-    
-    # Define edges
     workflow.add_edge("preprocess", "debug")
     workflow.add_edge("debug", "format")
-    
-    # Compile the graph
     return workflow.compile()
 
-# Add the missing debug_code function
 async def debug_code(
     code: str,
     filename: str,
     mood: str,
     query: Optional[str] = None
 ) -> Dict[str, Any]:
-    """
-    Debug code using the mood-aware agent workflow.
-    
-    Args:
-        code: Source code to debug
-        filename: Filename of the code
-        mood: User's current mood
-        query: Optional specific query about the code
-        
-    Returns:
-        Debugging results as a dictionary
-    """
-    workflow = create_workflow()
-    
-    # Make sure we're creating the request with all required fields
-    request = DebugRequest(
-        code=code,
-        filename=filename,
-        mood=mood,
-        query=query
-    )
-    
-    # Run the workflow with the request
     try:
-        result = await workflow.ainvoke({"input": request})
+        # Check API key first
+        if not os.environ.get("GOOGLE_API_KEY"):
+            return {
+                "success": False,
+                "error": "GOOGLE_API_KEY environment variable is not set. Please set it before running.",
+                "mood": mood,
+                "response": None
+            }
+            
+        workflow = create_workflow()
+        request = DebugRequest(
+            code=code,
+            filename=filename,
+            mood=mood,
+            query=query
+        )
         
-        # Extract the result from the final output
-        response = result["output"]
+        print(f"Invoking workflow with request for file: {filename}, mood: {mood}")
+        result = await workflow.ainvoke(request)
+        response = result["output"] if "output" in result else result
         
         if isinstance(response, DebugResponse):
-            return response.dict()
+            # For Pydantic v1
+            if hasattr(response, "dict"):
+                return response.dict()
+            # For Pydantic v2
+            return response.model_dump()
         return response
     except Exception as e:
-        # Return error information for debugging
+        error_details = traceback.format_exc()
+        print(f"Workflow error: {str(e)}\n{error_details}")
         return {
             "success": False,
             "error": f"Workflow error: {str(e)}",
+            "details": error_details,
             "mood": mood,
             "response": None
         }
-    
-    # Run the workflow with the request
-    result = await workflow.ainvoke({"input": request})
-    
-    # Extract the result from the final output
-    response = result["output"]
-    
-    if isinstance(response, DebugResponse):
-        return response.dict()
-    return response
