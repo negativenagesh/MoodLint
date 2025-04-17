@@ -4,7 +4,6 @@ tk
 gitpython 
 diffusers 
 pillow 
-torch 
 google-generativeai
 langchain
 langchain-core
