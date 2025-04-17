@@ -128,30 +128,40 @@ def create_workflow():
                 
             # Check if there was an error in previous steps
             if "error" in state and "result" not in state:
+                error_message = state["error"]
+                print(f"Error detected in state: {error_message}")
                 return {"output": DebugResponse(
                     success=False,
                     mood="unknown",
-                    response=None,
+                    response=f"I encountered an error while analyzing your code: {error_message}",
                     error=state["error"] + "\n" + state.get("traceback", "")
                 )}
                 
             result = state.get("result", {})
+            print(f"Result keys from agent: {result.keys()}")
+            
             if result.get("success", False):
+                # Make sure we include the response
+                response = result.get("response", "No response generated")
+                print(f"Successful response from agent, length: {len(response)}")
                 return {"output": DebugResponse(
                     success=True,
                     mood=result.get("mood", state.get("normalized_mood", state.get("mood", "unknown"))),
-                    response=result.get("response", "No response generated"),
+                    response=response,
                     error=None
                 )}
             else:
                 error_msg = result.get("error", "Unknown error occurred")
-                traceback_info = result.get("traceback", "")
-                print(f"Error details: {error_msg}\n{traceback_info}")
+                response = result.get("response")
+                print(f"Error in result: {error_msg}")
+                
+                if not response:
+                    response = f"I couldn't fully analyze your code due to an error: {error_msg}"
                 
                 return {"output": DebugResponse(
                     success=False,
                     mood=result.get("mood", state.get("normalized_mood", state.get("mood", "unknown"))),
-                    response=None,
+                    response=response,
                     error=error_msg
                 )}
         except Exception as e:
@@ -159,7 +169,7 @@ def create_workflow():
             return {"output": DebugResponse(
                 success=False,
                 mood="unknown",
-                response=None,
+                response=f"An unexpected error occurred while processing your request: {str(e)}",
                 error=f"Formatting error: {str(e)}\n{traceback.format_exc()}"
             )}
 
