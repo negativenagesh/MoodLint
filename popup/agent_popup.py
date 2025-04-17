@@ -166,12 +166,45 @@ class AgentDebugApp:
         # Clear any existing text
         self.result_text.delete(1.0, tk.END)
         
-        # Insert the response
-        if result.get("success", False) and result.get("response"):
-            self.result_text.insert(tk.END, result["response"])
+        print(f"Result keys: {result.keys()}")
+        
+        # More thorough response extraction logic
+        response_text = None
+        
+        # 1. Direct response in result
+        if "response" in result:
+            response_text = result["response"]
+            print(f"Found response directly in result, length: {len(response_text)}")
+        
+        # 2. Response in output
+        elif isinstance(result.get("output"), dict):
+            output = result["output"]
+            print(f"Output keys: {output.keys()}")
+            if "response" in output:
+                response_text = output["response"]
+                print(f"Found response in output, length: {len(response_text)}")
+                
+        # 3. Response in nested result
+        elif isinstance(result.get("result"), dict):
+            nested = result["result"]
+            print(f"Nested result keys: {nested.keys()}")
+            if "response" in nested:
+                response_text = nested["response"]
+                print(f"Found response in nested result, length: {len(response_text)}")
+        
+        # Display the response or create a query-aware fallback
+        if response_text:
+            self.result_text.insert(tk.END, response_text)
         else:
-            error = result.get("error", "Unknown error occurred")
-            self.result_text.insert(tk.END, f"Error: {error}")
+            query_context = f" with query: '{self.query}'" if self.query else ""
+            fallback = f"I'm analyzing your {self.filename} file as a {self.mood} developer{query_context}.\n\n"
+            
+            if "error" in result:
+                error_msg = result["error"]
+                self.result_text.insert(tk.END, f"Error: {error_msg}\n\n{fallback}")
+            else:
+                self.result_text.insert(tk.END, fallback)
+                self.result_text.insert(tk.END, "\nHowever, I couldn't generate a specific analysis. This might be due to an issue with the Gemini API connection or response format.")
         
         # Disable editing
         self.result_text.config(state=tk.DISABLED)
