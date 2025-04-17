@@ -7,6 +7,8 @@ import time
 import os
 import asyncio
 
+from dotenv import load_dotenv
+
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -210,6 +212,17 @@ class AgentDebugApp:
 
 def main():
     """Main function to parse arguments and start the application"""
+
+    load_dotenv()
+    
+    # Check if API key is available
+    if not os.environ.get("GOOGLE_API_KEY"):
+        print(json.dumps({
+            "status": "error", 
+            "message": "GOOGLE_API_KEY environment variable is not set. Please set it or add it to .env file."
+        }), flush=True)
+        sys.exit(1)
+
     if len(sys.argv) < 4:
         print(json.dumps({
             "status": "error", 
