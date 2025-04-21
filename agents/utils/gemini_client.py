@@ -78,23 +78,47 @@ class GeminiClient:
             # Enhanced response extraction with more detailed logging
             try:
                 if hasattr(response, "text"):
-                    print("Extracting response via .text attribute")
-                    return response.text
+                    response_text = response.text
+                    print(f"Extracting response via .text attribute, length: {len(response_text)}")
+                    return response_text
 
                 if hasattr(response, "parts") and response.parts:
-                    print("Extracting response via .parts attribute")
-                    return response.parts[0].text
+                    response_text = response.parts[0].text
+                    print(f"Extracting response via .parts attribute, length: {len(response_text)}")
+                    return response_text
 
                 if hasattr(response, "candidates") and response.candidates:
                     cand = response.candidates[0]
                     print(f"Examining candidate: {type(cand)}")
                     if hasattr(cand, "content") and hasattr(cand.content, "parts"):
-                        print("Extracting via candidate content parts")
-                        return cand.content.parts[0].text
+                        response_text = cand.content.parts[0].text
+                        print(f"Extracted via candidate content parts, length: {len(response_text)}")
+                        return response_text
 
+                # Additional extraction attempt for newer API versions
+                if hasattr(response, "prompt_feedback"):
+                    print("Response has prompt_feedback attribute")
+                
+                # Log available attributes for debugging
+                print(f"Response attributes: {dir(response)}")
+                
                 # Direct string conversion as fallback
                 response_str = str(response)
                 print(f"Using string representation, length: {len(response_str)}")
+
+                # For JSON-like responses, try to extract content
+                if response_str.startswith("{") and "content" in response_str:
+                    print("Response appears to be JSON formatted")
+                    # Simple extraction attempt (not full JSON parsing)
+                    if '"text":' in response_str:
+                        start_idx = response_str.find('"text":') + 8
+                        end_idx = response_str.find('",', start_idx)
+                        if end_idx == -1:
+                            end_idx = response_str.find('"}', start_idx)
+                        if start_idx > 0 and end_idx > start_idx:
+                            extracted = response_str[start_idx:end_idx]
+                            print(f"Extracted JSON text field, length: {len(extracted)}")
+                            return extracted
 
                 # For long responses, extract a reasonable portion
                 if len(response_str) > 500:
@@ -102,15 +126,22 @@ class GeminiClient:
                     end = 500
                     while end < min(1000, len(response_str)) and response_str[end] not in ".!?":
                         end += 1
-                    return response_str[:end+1] + "..."
+                    limited_response = response_str[:end+1] + "..."
+                    print(f"Limited long response to {len(limited_response)} chars")
+                    return limited_response
+                
+                print(f"Returning full string representation, length: {len(response_str)}")
                 return response_str
 
             except Exception as extract_err:
                 print(f"Error extracting response content: {extract_err}")
+                print(traceback.format_exc())
+                
                 # Fallback to a default response with information about the file
                 return (
                     "I've analyzed your file, but couldn't extract a detailed response.\n"
-                    "Consider checking the Gemini API output format or increasing verbosity."
+                    "Consider checking the Gemini API output format or increasing verbosity.\n\n"
+                    f"Error details: {str(extract_err)}"
                 )
 
         except Exception as e:
@@ -156,6 +187,7 @@ class GeminiClient:
                 f"As a software developer in a {mood} mood, analyze this {file_extension} code:\n\n"
                 f"```{file_extension}\n{code}\n```\n"
             )
+            
             # Add user query if provided
             if query:
                 prompt += f"\nI specifically want to know: {query}\n"
@@ -171,18 +203,36 @@ class GeminiClient:
             # Add mood-specific instructions
             if mood.lower() == "angry":
                 prompt += "\nGive your analysis in a critical, direct tone, focusing on things that could irritate a developer."
+                prompt += "\nYour response should be forceful and include strong language (but remain professional)."
             elif mood.lower() == "happy":
                 prompt += "\nGive your analysis in an optimistic tone, highlighting the positive aspects while still noting improvements."
+                prompt += "\nUse enthusiastic language and focus on the potential of the code."
             elif mood.lower() == "sad":
                 prompt += "\nGive your analysis in a thoughtful, slightly melancholy tone."
+                prompt += "\nNote missed opportunities and what could have been with the code."
             elif mood.lower() == "frustrated":
                 prompt += "\nGive your analysis focusing on pain points that might frustrate a developer."
+                prompt += "\nHighlight tedious aspects and things that make working with this code difficult."
             elif mood.lower() == "exhausted":
                 prompt += "\nGive your analysis focusing on complexity and cognitive load, noting things that would tire a developer."
+                prompt += "\nPoint out where the code requires too much mental energy to understand."
+
+            # Add format guidance for better response structure
+            prompt += "\n\nPlease structure your response clearly with headers and bullet points where appropriate."
+            prompt += "\nBegin with a brief summary of the code's purpose and main findings."
 
             # Generate the response
             response_text = self.generate_response(prompt, temperature=0.7, max_tokens=4096)
             print(f"Generated response, length: {len(response_text)}")
+
+            # Validate response - if it's too short, it might be an error
+            if len(response_text) < 100:
+                print(f"Warning: Response is unusually short ({len(response_text)} chars)")
+                # Add some context to short responses
+                response_text = (
+                    f"Analysis of {filename} from a {mood} perspective:\n\n{response_text}\n\n"
+                    "Note: The analysis is brief - you may want to try again with a different query."
+                )
 
             # Return successful result
             return {
