@@ -17,7 +17,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from agents.workflow import debug_code
 
 class AgentDebugApp:
-    def __init__(self, root, mood, query=""):
+    def __init__(self, root, mood, query="", initial_file=None):
         self.root = root
         self.mood = mood
         self.query = query
@@ -25,10 +25,18 @@ class AgentDebugApp:
         self.code = ""
         self.filename = ""
         self.selected_files = []
+        self.initial_file = initial_file  # Store the initial file path
         
         # Set up the UI
         self.setup_ui()
-
+        
+        # If initial file was provided, load it
+        if self.initial_file and os.path.exists(self.initial_file):
+            self.selected_files.append(self.initial_file)
+            self.file_list.insert(tk.END, os.path.basename(self.initial_file))
+            # Select the file in the listbox
+            self.file_list.selection_set(0)
+    
     def setup_ui(self):
         self.root.title(f"MoodLint Agent - {self.mood.capitalize()} Mode")
         self.root.geometry("800x700")
@@ -71,24 +79,27 @@ class AgentDebugApp:
         file_buttons_frame.pack(fill=tk.X, pady=5, padx=5)
         
         ttk.Button(file_buttons_frame, text="Add Files", command=self.add_files).pack(side=tk.LEFT, padx=5)
-        ttk.Button(file_buttons_frame, text="Clear Files", command=self.clear_files).pack(side=tk.LEFT, padx=5)
+        ttk.Button(file_buttons_frame, text="Clear Selection", command=self.clear_files).pack(side=tk.LEFT, padx=5)
         
-        # File listbox
-        self.file_list = tk.Listbox(file_select_frame, height=4)
-        self.file_list.pack(fill=tk.X, expand=True, pady=5, padx=5)
+        # File list
+        self.file_list = tk.Listbox(file_select_frame, height=3)
+        self.file_list.pack(fill=tk.X, padx=5, pady=5)
         
-        # Query input
-        query_frame = ttk.LabelFrame(main_frame, text="Enter Your Query")
+        # Query section
+        query_frame = ttk.LabelFrame(main_frame, text="Query")
         query_frame.pack(fill=tk.X, pady=(0, 10))
         
-        self.query_input = scrolledtext.ScrolledText(query_frame, height=3, wrap=tk.WORD)
-        self.query_input.pack(fill=tk.X, expand=True, pady=5, padx=5)
+        query_label = ttk.Label(query_frame, text="What would you like to know about this code?")
+        query_label.pack(anchor=tk.W, padx=5, pady=(5, 0))
+        
+        self.query_input = scrolledtext.ScrolledText(query_frame, wrap=tk.WORD, height=3)
+        self.query_input.pack(fill=tk.X, padx=5, pady=5)
         if self.query:
             self.query_input.insert(tk.END, self.query)
         
         # Analyze button
         analyze_frame = ttk.Frame(main_frame)
-        analyze_frame.pack(fill=tk.X, pady=(0, 10))
+        analyze_frame.pack(fill=tk.X)
         
         self.analyze_btn = ttk.Button(analyze_frame, text="Analyze Selected Files", command=self.run_analysis)
         self.analyze_btn.pack(anchor=tk.CENTER, pady=5)
@@ -119,36 +130,42 @@ class AgentDebugApp:
         
         self.close_button = ttk.Button(button_frame, text="Close", command=self.on_close)
         self.close_button.pack(side=tk.RIGHT)
+        
+        # Set up close handler
+        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
     def get_mood_color(self):
+        """Return color for the current mood"""
         mood_colors = {
-            "happy": "#4CAF50",    # Green
-            "frustrated": "#FF9800", # Orange
-            "exhausted": "#9C27B0", # Purple
-            "sad": "#2196F3",       # Blue
-            "angry": "#F44336"      # Red
+            "happy": "#32CD32",  # lime green
+            "sad": "#4169E1",    # royal blue
+            "angry": "#FF4500",  # orangered
+            "frustrated": "#FFA500",  # orange
+            "exhausted": "#800080"   # purple
         }
         return mood_colors.get(self.mood.lower(), "#000000")
     
     def add_files(self):
-        """Open file dialog and add selected files to the list"""
-        filetypes = [
-            ("Python files", "*.py"),
-            ("JavaScript files", "*.js"),
-            ("TypeScript files", "*.ts"),
-            ("All files", "*.*")
-        ]
-        
-        files = filedialog.askopenfilenames(
-            title="Select Files to Analyze",
-            filetypes=filetypes
+        """Add files to the list"""
+        filepaths = filedialog.askopenfilenames(
+            title="Select Files",
+            filetypes=[
+                ("Python Files", "*.py"),
+                ("JavaScript Files", "*.js"),
+                ("TypeScript Files", "*.ts"),
+                ("HTML Files", "*.html"),
+                ("CSS Files", "*.css"),
+                ("All Files", "*.*")
+            ]
         )
         
-        if files:
-            for file_path in files:
-                if file_path not in self.selected_files:
-                    self.selected_files.append(file_path)
-                    self.file_list.insert(tk.END, os.path.basename(file_path))
+        if not filepaths:
+            return
+            
+        for filepath in filepaths:
+            if filepath not in self.selected_files:
+                self.selected_files.append(filepath)
+                self.file_list.insert(tk.END, os.path.basename(filepath))
     
     def clear_files(self):
         """Clear all files from the list"""
@@ -158,28 +175,27 @@ class AgentDebugApp:
     def update_progress(self):
         """Update the progress animation"""
         if not self.is_complete:
-            # Update the dots animation
             dots = self.progress_dots.get()
+            
             if len(dots) >= 3:
                 dots = ""
             else:
                 dots += "."
+                
             self.progress_dots.set(dots)
-            
-            # Schedule the next update
             self.root.after(500, self.update_progress)
     
     def run_analysis(self):
         """Run analysis on selected files"""
         # Check if files are selected
         if not self.selected_files:
-            messagebox.showwarning("No Files Selected", "Please select at least one file to analyze.")
+            messagebox.showwarning("No Files", "Please select at least one file to analyze.")
             return
         
         # Get the selected index from the listbox
         selected_idx = self.file_list.curselection()
         if not selected_idx:
-            messagebox.showwarning("No File Selected", "Please select a file from the list.")
+            messagebox.showwarning("No Selection", "Please select a file from the list.")
             return
         
         selected_idx = selected_idx[0]
@@ -190,10 +206,8 @@ class AgentDebugApp:
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 self.code = f.read()
-                print(f"Successfully read file: {file_path}, length: {len(self.code)}")
+            print(f"Successfully read file: {file_path}, length: {len(self.code)}")
         except Exception as e:
-            error_traceback = traceback.format_exc()
-            print(f"Error reading file: {str(e)}\n{error_traceback}")
             messagebox.showerror("Error", f"Could not read file: {str(e)}")
             return
         
@@ -225,7 +239,7 @@ class AgentDebugApp:
         self.agent_thread.start()
     
     def run_agent_workflow(self):
-        """Run the agent workflow in a separate thread"""
+        """Run the agent workflow in a background thread"""
         try:
             print(f"Starting agent workflow thread")
             
@@ -233,6 +247,7 @@ class AgentDebugApp:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             
+            # Ensure we're using the correct mood parameter
             print(f"Calling debug_code with: filename={self.filename}, mood={self.mood}, code length={len(self.code)}")
             
             # Run debug_code function
@@ -245,12 +260,113 @@ class AgentDebugApp:
             
             print(f"Debug code completed, result: {result.keys() if isinstance(result, dict) else 'not a dict'}")
             
+            # UPDATED: Enhanced response extraction logic with better debugging
+            if isinstance(result, dict):
+                print(f"Result type: dict with keys {result.keys()}")
+                
+                # Direct extraction from Gemini API result
+                if "response" in result and result["response"]:
+                    response_length = len(result["response"]) if isinstance(result["response"], str) else "non-string"
+                    print(f"Found response directly in result, length: {response_length}")
+                    
+                    # If the response appears to be a fallback (contains specific phrases from the fallback)
+                    if (isinstance(result["response"], str) and 
+                        "workflow management code" in result["response"] and 
+                        "state processing logic" in result["response"] and
+                        len(result["response"]) < 200):
+                        print("WARNING: Detected fallback response, attempting to find actual response")
+                        
+                        # If we have a nested result structure, look deeper
+                        if "result" in result and isinstance(result["result"], dict):
+                            print(f"Looking in nested result: {result['result'].keys()}")
+                            
+                            # Try to directly access Gemini response if it exists
+                            if "gemini_response" in result["result"]:
+                                print("Found gemini_response in nested result")
+                                result["response"] = result["result"]["gemini_response"]
+                            elif "raw_response" in result["result"]:
+                                print("Found raw_response in nested result")
+                                result["response"] = result["result"]["raw_response"]
+                    else:
+                        # Valid non-fallback response found
+                        self.root.after(0, lambda: self.update_results(result))
+                        return
+                
+                # Check for Gemini client-specific nested response format
+                if "output" in result and isinstance(result["output"], dict):
+                    if "response" in result["output"] and result["output"]["response"]:
+                        print(f"Found response in output property")
+                        result["response"] = result["output"]["response"]
+                        self.root.after(0, lambda: self.update_results(result))
+                        return
+                
+                # Look for nested response in result
+                if "result" in result and isinstance(result["result"], dict):
+                    nested = result["result"]
+                    print(f"Nested result keys: {nested.keys()}")
+                    
+                    if "response" in nested and nested["response"]:
+                        print(f"Found response in nested result")
+                        result["response"] = nested["response"]
+                        self.root.after(0, lambda: self.update_results(result))
+                        return
+                
+                # Check if we have a gemini_client_output property
+                if "gemini_client_output" in result:
+                    print("Found gemini_client_output in result")
+                    if isinstance(result["gemini_client_output"], str):
+                        result["response"] = result["gemini_client_output"]
+                        self.root.after(0, lambda: self.update_results(result))
+                        return
+                    elif isinstance(result["gemini_client_output"], dict) and "response" in result["gemini_client_output"]:
+                        result["response"] = result["gemini_client_output"]["response"]
+                        self.root.after(0, lambda: self.update_results(result))
+                        return
+            
+            # Create a more useful fallback response that includes the query
+            if isinstance(result, dict):
+                if "success" not in result:
+                    result["success"] = True
+                if "mood" not in result:
+                    result["mood"] = self.mood
+                
+                # Create a response if none exists, making it more relevant to the query
+                if "response" not in result or not result["response"]:
+                    query_context = f" about '{self.query}'" if self.query else ""
+                    result["response"] = (
+                        f"I analyzed your {self.filename} file from a {self.mood} perspective{query_context}.\n\n"
+                        "While I couldn't generate a detailed analysis, here are some general observations:\n\n"
+                        f"1. The file appears to be a {self.filename.split('.')[-1]} file that likely contains application logic\n"
+                        f"2. For files like this, common issues include error handling, performance optimization, and maintainability\n"
+                        f"3. Consider adding more comprehensive documentation and unit tests\n\n"
+                        f"To get a better analysis, please try again with a more specific query or check your API configuration."
+                    )
+            elif isinstance(result, str):
+                # Convert string response to proper structure
+                result = {
+                    "success": True,
+                    "mood": self.mood,
+                    "response": result,
+                    "query": self.query
+                }
+            else:
+                # Create fallback result with better information
+                result = {
+                    "success": True,
+                    "mood": self.mood,
+                    "response": (
+                        f"Analysis of {self.filename} from a {self.mood} perspective was completed, but the response format was unexpected.\n\n"
+                        "Please ensure your API key is correctly configured and has sufficient permissions."
+                    ),
+                    "result": {"mood": self.mood}
+                }
+            
             # Update UI with results
             self.root.after(0, lambda: self.update_results(result))
+            
         except Exception as e:
             error_traceback = traceback.format_exc()
             print(f"Error during analysis: {str(e)}\n{error_traceback}")
-            # Handle errors
             error_message = f"Error during analysis: {str(e)}\n\nDetails: {error_traceback}"
             self.root.after(0, lambda: self.update_error(error_message))
     
@@ -269,60 +385,40 @@ class AgentDebugApp:
         self.result_text.config(state=tk.NORMAL)
         
         # Clear any existing text
-        self.result_text.delete(1.0, tk.END)
+        self.result_text.delete("1.0", tk.END)
         
         print(f"Result keys: {result.keys() if isinstance(result, dict) else 'not a dict'}")
         
-        # More thorough response extraction logic
+        # Extract response text from result
         response_text = None
-        error_message = None
         
         if isinstance(result, dict):
-            # 1. Direct response in result
-            if "response" in result:
+            # Direct response in result
+            if "response" in result and result["response"]:
                 response_text = result["response"]
                 print(f"Found response directly in result, length: {len(response_text)}")
             
-            # 2. Error in result
-            if "error" in result:
-                error_message = result["error"]
-                print(f"Found error in result: {error_message}")
+            # If no direct response but we have output
+            elif "output" in result and isinstance(result["output"], dict) and "response" in result["output"]:
+                response_text = result["output"]["response"]
+                print(f"Found response in output, length: {len(response_text)}")
             
-            # 3. Response in output
-            elif isinstance(result.get("output"), dict):
-                output = result["output"]
-                print(f"Output keys: {output.keys()}")
-                if "response" in output:
-                    response_text = output["response"]
-                    print(f"Found response in output, length: {len(response_text)}")
-                if "error" in output:
-                    error_message = output["error"]
-                    print(f"Found error in output: {error_message}")
-                    
-            # 4. Response in nested result
-            elif isinstance(result.get("result"), dict):
-                nested = result["result"]
-                print(f"Nested result keys: {nested.keys()}")
-                if "response" in nested:
-                    response_text = nested["response"]
-                    print(f"Found response in nested result, length: {len(response_text)}")
-                if "error" in nested:
-                    error_message = nested["error"]
-                    print(f"Found error in nested result: {error_message}")
+            # If no direct response but we have a nested result
+            elif "result" in result and isinstance(result["result"], dict) and "response" in result["result"]:
+                response_text = result["result"]["response"]
+                print(f"Found response in nested result, length: {len(response_text)}")
         
-        # Display the response or create a query-aware fallback
+        # If we found a response, display it
         if response_text:
             self.result_text.insert(tk.END, response_text)
         else:
-            query_context = f" with query: '{self.query}'" if self.query else ""
-            fallback = f"I'm analyzing your {self.filename} file as a {self.mood} developer{query_context}.\n\n"
-            
-            if error_message:
-                self.result_text.insert(tk.END, f"Error: {error_message}\n\n{fallback}")
-            else:
-                self.result_text.insert(tk.END, fallback)
-                self.result_text.insert(tk.END, "\nHowever, I couldn't generate a specific analysis. This might be due to an issue with the Gemini API connection or response format.")
-                self.result_text.insert(tk.END, "\n\nPlease check the Python console for more detailed error information.")
+            # Fallback message if no response was found
+            fallback_message = (
+                f"I've analyzed your {self.filename} file from a {self.mood} perspective.\n\n"
+                "However, I wasn't able to generate a detailed response. This might be due to an issue with the API connection.\n\n"
+                "Please try again or check the logs for more information."
+            )
+            self.result_text.insert(tk.END, fallback_message)
         
         # Disable editing
         self.result_text.config(state=tk.DISABLED)
@@ -331,7 +427,7 @@ class AgentDebugApp:
         self.result_text.see("1.0")
         
         # Send result back to VSCode via stdout
-        print(json.dumps({"status": "complete", "result": result if isinstance(result, dict) else {"error": "Invalid result format"}}), flush=True)
+        print(json.dumps({"status": "complete", "result": result}), flush=True)
     
     def update_error(self, error_message):
         """Display an error in the results panel"""
@@ -344,7 +440,7 @@ class AgentDebugApp:
         self.result_text.config(state=tk.NORMAL)
         
         # Clear any existing text
-        self.result_text.delete(1.0, tk.END)
+        self.result_text.delete("1.0", tk.END)
         
         # Insert the error message
         self.result_text.insert(tk.END, error_message)
@@ -364,13 +460,11 @@ class AgentDebugApp:
 
 def main():
     """Main function to parse arguments and start the application"""
-
     load_dotenv()
     
     # Check if API key is available and print it (obscured)
     api_key = os.environ.get("GOOGLE_API_KEY", "")
     if api_key:
-        masked_key = api_key[:4] + "*" * (len(api_key) - 8) + api_key[-4:] if len(api_key) > 8 else "****"
         print(f"GOOGLE_API_KEY found, starts with {api_key[:4]}...")
     else:
         print(json.dumps({
@@ -379,21 +473,38 @@ def main():
         }), flush=True)
         sys.exit(1)
 
+    # Parse command line arguments
     if len(sys.argv) < 2:
         print(json.dumps({
             "status": "error", 
-            "message": "Usage: agent_popup.py <mood> [query]"
+            "message": "Usage: agent_popup.py <mood> [file_path] [query]"
         }), flush=True)
         sys.exit(1)
     
+    # First argument is always the mood
     mood = sys.argv[1]
-    query = sys.argv[2] if len(sys.argv) > 2 else ""
+    
+    # Optional file path and query
+    file_path = None
+    query = ""
+    
+    if len(sys.argv) > 2:
+        # Second argument could be a file path
+        potential_file = sys.argv[2]
+        if os.path.exists(potential_file):
+            file_path = potential_file
+            # If there's a third argument, it's the query
+            if len(sys.argv) > 3:
+                query = sys.argv[3]
+        else:
+            # If second argument isn't a file, treat it as a query
+            query = potential_file
     
     # Initialize the UI
     print(json.dumps({"status": "starting"}), flush=True)
     
     root = tk.Tk()
-    app = AgentDebugApp(root, mood, query)
+    app = AgentDebugApp(root, mood, query, file_path)
     
     print(json.dumps({"status": "ready"}), flush=True)
     
