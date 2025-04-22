@@ -260,20 +260,32 @@ class AgentDebugApp:
             
             print(f"Debug code completed, result: {result.keys() if isinstance(result, dict) else 'not a dict'}")
             
-            # UPDATED: Enhanced response extraction logic with better debugging
+            # Check for raw Gemini response first
             if isinstance(result, dict):
                 print(f"Result type: dict with keys {result.keys()}")
+                
+                # Check for raw Gemini response first - this is the most direct source
+                if "raw_response" in result and result["raw_response"]:
+                    print(f"Found raw_response in result, using as primary response")
+                    result["response"] = result["raw_response"]
+                    self.root.after(0, lambda: self.update_results(result))
+                    return
                 
                 # Direct extraction from Gemini API result
                 if "response" in result and result["response"]:
                     response_length = len(result["response"]) if isinstance(result["response"], str) else "non-string"
                     print(f"Found response directly in result, length: {response_length}")
                     
-                    # If the response appears to be a fallback (contains specific phrases from the fallback)
-                    if (isinstance(result["response"], str) and 
-                        "workflow management code" in result["response"] and 
-                        "state processing logic" in result["response"] and
-                        len(result["response"]) < 200):
+                    # Only check for fallback if response is too short or looks generic
+                    fallback_indicators = ["API connection", "wasn't able to generate", "check that your API key"]
+                    is_fallback = (isinstance(result["response"], str) and 
+                                   any(indicator in result["response"] for indicator in fallback_indicators))
+                    
+                    if not is_fallback:
+                        # Valid non-fallback response found
+                        self.root.after(0, lambda: self.update_results(result))
+                        return
+                    else:
                         print("WARNING: Detected fallback response, attempting to find actual response")
                         
                         # If we have a nested result structure, look deeper
@@ -284,13 +296,13 @@ class AgentDebugApp:
                             if "gemini_response" in result["result"]:
                                 print("Found gemini_response in nested result")
                                 result["response"] = result["result"]["gemini_response"]
+                                self.root.after(0, lambda: self.update_results(result))
+                                return
                             elif "raw_response" in result["result"]:
                                 print("Found raw_response in nested result")
                                 result["response"] = result["result"]["raw_response"]
-                    else:
-                        # Valid non-fallback response found
-                        self.root.after(0, lambda: self.update_results(result))
-                        return
+                                self.root.after(0, lambda: self.update_results(result))
+                                return
                 
                 # Check for Gemini client-specific nested response format
                 if "output" in result and isinstance(result["output"], dict):
@@ -393,18 +405,31 @@ class AgentDebugApp:
         response_text = None
         
         if isinstance(result, dict):
-            # Direct response in result
-            if "response" in result and result["response"]:
+            # Check for raw response first
+            if "raw_response" in result and result["raw_response"]:
+                # Check if the direct response looks like a fallback
+                is_likely_fallback = False
+                if "response" in result and isinstance(result["response"], str):
+                    fallback_indicators = ["API connection", "wasn't able to generate", "check that your API key"]
+                    is_likely_fallback = any(indicator in result["response"] for indicator in fallback_indicators)
+                
+                # Use raw response if direct response is missing or appears to be a fallback
+                if is_likely_fallback or "response" not in result:
+                    response_text = result["raw_response"]
+                    print(f"Using raw_response instead of fallback response, length: {len(response_text)}")
+            
+            # If no raw response or we didn't use it, try direct response
+            if not response_text and "response" in result and result["response"]:
                 response_text = result["response"]
                 print(f"Found response directly in result, length: {len(response_text)}")
             
             # If no direct response but we have output
-            elif "output" in result and isinstance(result["output"], dict) and "response" in result["output"]:
+            elif not response_text and "output" in result and isinstance(result["output"], dict) and "response" in result["output"]:
                 response_text = result["output"]["response"]
                 print(f"Found response in output, length: {len(response_text)}")
             
             # If no direct response but we have a nested result
-            elif "result" in result and isinstance(result["result"], dict) and "response" in result["result"]:
+            elif not response_text and "result" in result and isinstance(result["result"], dict) and "response" in result["result"]:
                 response_text = result["result"]["response"]
                 print(f"Found response in nested result, length: {len(response_text)}")
         
