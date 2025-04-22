@@ -13,3 +13,12 @@ pydantic
 python-dotenv
 fastapi
 uvicorn
+torch 
+torchvision 
+timm 
+scikit-learn 
+pillow 
+matplotlib 
+seaborn 
+opencv-python 
+numpy
