@@ -113,6 +113,9 @@ def create_workflow():
                 if "gemini_response" in result:
                     enhanced_result["raw_response"] = result["gemini_response"]
                     print(f"Stored raw Gemini response, length: {len(enhanced_result['raw_response'])}")
+                elif "raw_response" in result:
+                    enhanced_result["raw_response"] = result["raw_response"]
+                    print(f"Stored raw_response from result, length: {len(enhanced_result['raw_response'])}")
                 
                 # Make sure we have the response key
                 if "response" in result and result["response"]:
@@ -212,7 +215,11 @@ def create_workflow():
                 response = result.get("response")
                 print(f"Error in result: {error_msg}")
                 
-                if not response:
+                # If we have a raw response and no proper response, use the raw response
+                if (not response or len(response or "") < 50) and raw_response:
+                    print(f"Using raw_response because response is missing or too short")
+                    response = raw_response
+                elif not response:
                     query_context = f" regarding '{state.get('query', '')}'" if state.get("query") else ""
                     response = f"I couldn't fully analyze your code{query_context} due to an error: {error_msg}"
                 
@@ -290,6 +297,12 @@ async def debug_code(
                 # Make sure raw_response carries through
                 if raw_response and "raw_response" not in response_dict:
                     response_dict["raw_response"] = raw_response
+                
+                # Ensure we preserve the actual response content even if it comes through raw_response
+                if "response" in response_dict and (not response_dict["response"] or len(response_dict["response"]) < 100) and "raw_response" in response_dict:
+                    response_dict["response"] = response_dict["raw_response"]
+                    print(f"Using raw_response as main response due to empty or short response")
+                
                 return response_dict
                 
             # For Pydantic v2
@@ -298,6 +311,12 @@ async def debug_code(
             # Make sure raw_response carries through
             if raw_response and "raw_response" not in response_dict:
                 response_dict["raw_response"] = raw_response
+            
+            # Ensure we preserve the actual response content even if it comes through raw_response
+            if "response" in response_dict and (not response_dict["response"] or len(response_dict["response"]) < 100) and "raw_response" in response_dict:
+                response_dict["response"] = response_dict["raw_response"]
+                print(f"Using raw_response as main response due to empty or short response")
+            
             return response_dict
         
         # If we have a direct response in the result
@@ -312,7 +331,17 @@ async def debug_code(
                 if "raw_response" not in result:
                     result["raw_response"] = raw_response
             
-            if "response" in result and result["response"]:
+            # Check for fallback response
+            fallback_indicators = ["API connection", "wasn't able to generate", "check that your API key"]
+            is_fallback = False
+            
+            if "response" in result and isinstance(result["response"], str):
+                is_fallback = any(indicator in result["response"] for indicator in fallback_indicators)
+                if is_fallback and raw_response:
+                    print(f"Detected fallback response, replacing with raw_response")
+                    result["response"] = raw_response
+            
+            if "response" in result and result["response"] and not is_fallback:
                 print(f"Found response directly in result, length: {len(result['response'])}")
                 # Add the raw response to the result if we have it
                 if raw_response and "raw_response" not in result:
@@ -332,7 +361,16 @@ async def debug_code(
                     raw_response = nested["gemini_response"]
                     print(f"Found gemini_response in nested result")
                     
+                # Check if the nested response is a fallback
                 if "response" in nested:
+                    nested_is_fallback = False
+                    if isinstance(nested["response"], str):
+                        nested_is_fallback = any(indicator in nested["response"] for indicator in fallback_indicators)
+                        
+                    if nested_is_fallback and raw_response:
+                        print(f"Detected fallback in nested response, using raw_response")
+                        nested["response"] = raw_response
+                        
                     print(f"Found response in nested result, length: {len(nested['response'])}")
                     # Combine top-level and nested result data
                     combined_result = {
@@ -366,6 +404,19 @@ async def debug_code(
             
         # Create more useful fallback response
         print(f"Unable to extract standard response format, using fallback")
+        
+        # If we have a raw response, use it instead of the generic fallback
+        if raw_response:
+            print(f"Using raw_response as the primary response instead of fallback text")
+            return {
+                "success": True,
+                "mood": mood,
+                "response": raw_response,
+                "raw_response": raw_response,
+                "result": {"mood": mood, "raw_response": raw_response}
+            }
+        
+        # No raw response available, use generic fallback
         query_context = f" about your query: '{query}'" if query else ""
         fallback_response = (
             f"I analyzed your {filename} file from the perspective of a {mood} developer{query_context}.\n\n"
@@ -373,7 +424,6 @@ async def debug_code(
             "I recommend checking that your API key has the proper permissions and trying again with a more specific query."
         )
         
-        # When returning the fallback response, include the raw response if available
         fallback_result = {
             "success": True,
             "mood": mood,
@@ -381,10 +431,6 @@ async def debug_code(
             "result": {"mood": mood}
         }
         
-        if raw_response:
-            fallback_result["raw_response"] = raw_response
-            fallback_result["result"]["raw_response"] = raw_response
-            
         return fallback_result
     except Exception as e:
         error_details = traceback.format_exc()
