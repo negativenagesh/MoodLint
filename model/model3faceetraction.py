@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import precision_recall_fscore_support, roc_auc_score, confusion_matrix
 import numpy as np
 import seaborn as sns
-import cv2
+from facenet_pytorch import MTCNN
 
 # Set environment variable to avoid memory fragmentation
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
@@ -27,6 +27,7 @@ print(f"Using device: {device}")
 data_transforms = {
     'train': transforms.Compose([
         transforms.Resize((600, 600)),
+        transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
         transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
     ]),
@@ -42,7 +43,7 @@ class EmotionDataset(Dataset):
         self.image_paths = image_paths
         self.labels = labels
         self.transform = transform
-        self.face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+        self.mtcnn = MTCNN(keep_all=False, device=device)
 
     def __len__(self):
         return len(self.image_paths)
@@ -52,12 +53,10 @@ class EmotionDataset(Dataset):
         label = self.labels[idx]
         try:
             image = Image.open(img_path).convert("RGB")
-            img_np = np.array(image)
-            gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
-            faces = self.face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
-            if len(faces) > 0:
-                x, y, w, h = faces[0]  # Take the first detected face
-                face_img = image.crop((x, y, x + w, y + h))
+            box, prob = self.mtcnn.detect(image)
+            if box is not None:
+                box = [int(b) for b in box]
+                face_img = image.crop(tuple(box))
             else:
                 print(f"No face detected in {img_path}")
                 face_img = Image.new('RGB', (1, 1), color=(0, 0, 0))  # Small dummy image
@@ -86,23 +85,35 @@ def load_dataset(dataset_dir, emotions):
             if os.path.splitext(img_name)[1].lower() not in valid_extensions:
                 print(f"Skipping non-image file: {img_path}")
                 continue
-            try:
-                with Image.open(img_path) as img:
-                    img.verify()
-                image_paths.append(img_path)
-                labels.append(idx)
-            except Exception as e:
-                print(f"Skipping invalid image {img_path}: {e}")
-                continue
-        
-        if not image_paths:
-            raise ValueError(f"No valid images found in {emotion_dir}")
+            image_paths.append(img_path)
+            labels.append(idx)
     
     if not image_paths:
         raise ValueError("No valid images found in the dataset")
     
+    # Filter images with detectable faces using MTCNN
+    mtcnn = MTCNN(keep_all=False, device=device)
+    valid_image_paths = []
+    valid_labels = []
+    for img_path, label in zip(image_paths, labels):
+        try:
+            image = Image.open(img_path).convert("RGB")
+            box, prob = mtcnn.detect(image)
+            if box is not None:
+                valid_image_paths.append(img_path)
+                valid_labels.append(label)
+            else:
+                print(f"Skipping {img_path}: no face detected")
+        except Exception as e:
+            print(f"Skipping {img_path}: {e}")
+            continue
+    
+    if not valid_image_paths:
+        raise ValueError("No images with detectable faces found")
+    
+    # Split the dataset
     train_paths, temp_paths, train_labels, temp_labels = train_test_split(
-        image_paths, labels, test_size=0.3, random_state=42, stratify=labels
+        valid_image_paths, valid_labels, test_size=0.3, random_state=42, stratify=valid_labels
     )
     val_paths, test_paths, val_labels, test_labels = train_test_split(
         temp_paths, temp_labels, test_size=0.5, random_state=42, stratify=temp_labels
