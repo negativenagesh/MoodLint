@@ -6,7 +6,6 @@ import { getWebviewContent } from './webviewContent';
 import { AgentInterface } from './agentInterface';
 import { createDebugResultsPopup } from './debugPopup';
 
-
 // Panel tracking variable
 let moodlintPanel: vscode.WebviewPanel | undefined = undefined;
 
@@ -221,7 +220,10 @@ function createMoodlintPanel(context: vscode.ExtensionContext) {
         {
             enableScripts: true,
             retainContextWhenHidden: true,
-            localResourceRoots: [vscode.Uri.file(path.join(context.extensionPath, 'media'))]
+            localResourceRoots: [
+                vscode.Uri.file(path.join(context.extensionPath, 'media')),
+                vscode.Uri.file(path.join(context.extensionPath, 'MoodLint-logo'))
+            ]
         }
     );
 
@@ -230,12 +232,14 @@ function createMoodlintPanel(context: vscode.ExtensionContext) {
     const stylesUri = moodlintPanel.webview.asWebviewUri(stylesPath);
     const scriptPath = vscode.Uri.file(path.join(context.extensionPath, 'media', 'main.js'));
     const scriptUri = moodlintPanel.webview.asWebviewUri(scriptPath);
+    const imagePath = vscode.Uri.file(path.join(context.extensionPath, 'MoodLint-logo', 'cover.png'));
+    const imageUri = moodlintPanel.webview.asWebviewUri(imagePath);
     
     // Generate a nonce for content security policy
     const nonce = getNonce();
     const cspSource = moodlintPanel.webview.cspSource;
 
-    moodlintPanel.webview.html = getWebviewContent(stylesUri, scriptUri, nonce, cspSource);
+    moodlintPanel.webview.html = getWebviewContent(stylesUri, scriptUri, imageUri, nonce, cspSource);
 
     moodlintPanel.onDidDispose(
         () => {
