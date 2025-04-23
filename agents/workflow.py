@@ -7,17 +7,15 @@ import sys
 import traceback
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
 load_dotenv()
 
-# Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from langgraph.graph import StateGraph
 from langchain_core.messages import HumanMessage, AIMessage
 from pydantic import BaseModel, Field
 from .agent_manager import AgentManager
-from .utils.gemini_client import GeminiClient  # Import the GeminiClient directly
+from .utils.gemini_client import GeminiClient
 
 class DebugRequest(BaseModel):
     code: str = Field(..., description="Source code to debug")
@@ -40,19 +38,15 @@ def create_workflow():
         The configured workflow or None if creation fails
     """
     try:
-        # Verify API key is available before creating agent manager
         api_key = os.environ.get("GOOGLE_API_KEY")
         if not api_key:
             print("ERROR: GOOGLE_API_KEY environment variable is not set.")
             return None
         
-        # Create agent manager
         agent_manager = AgentManager()
 
-        # Accepts DebugRequest, returns dict
         def preprocess_request(state):
             try:
-                # Handle both DebugRequest and dict inputs
                 if isinstance(state, DebugRequest):
                     return {
                         "code": state.code,
