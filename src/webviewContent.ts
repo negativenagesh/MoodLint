@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 export function getWebviewContent(
     stylesUri: vscode.Uri, 
     scriptUri: vscode.Uri,
+    imageUri: vscode.Uri,
     nonce: string,
     cspSource: string
 ): string {
@@ -18,7 +19,7 @@ export function getWebviewContent(
     <body>
         <div class="app-container">
             <header class="app-header">
-                <h1>MoodLint</h1>
+                <img src="${imageUri}" alt="MoodLint Logo" class="logo">
                 <div class="header-subtitle">Emotion-aware code debugging assistant</div>
             </header>
             <main class="app-content">
