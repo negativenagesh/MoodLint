@@ -66,11 +66,11 @@ Monotony can lower arousal and decrease performance. Visualizations help counter
 
 ## Agent popup
 
-```sh
+```zsh
 
-python3 popup/agent_popup.py <path_to_code_file> <filename> <mood> [optional_query]
+python3 popup/agent_popup.py <mood> [file_path] [query]
 
-python3 popup/agent_popup.py ./agents/workflow.py workflow.py happy
+python3 popup/agent_popup.py happy ./agents/workflow.py "How can I improve error handling?"
 
 ```
 
