@@ -380,3 +380,15 @@ video {
     margin-right: 8px;
     vertical-align: middle;
 }
+.app-header {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+}
+
+.logo {
+    width: 800px;
+    height: auto;
+    margin-bottom: 10px;
+}
