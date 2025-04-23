@@ -16,6 +16,12 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # Import the debug_code function from the agent workflow
 from agents.workflow import debug_code
 
+# Ensure virtual environment is in path
+venv_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".venv", "lib", "python3.8", "site-packages")
+if os.path.exists(venv_path) and venv_path not in sys.path:
+    sys.path.insert(0, venv_path)
+    print(f"Added virtual environment path: {venv_path}")
+
 class AgentDebugApp:
     def __init__(self, root, mood, query="", initial_file=None):
         self.root = root
