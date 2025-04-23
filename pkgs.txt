@@ -22,3 +22,4 @@ matplotlib
 seaborn 
 opencv-python 
 numpy
+facenet-pytorch
