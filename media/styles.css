@@ -67,8 +67,7 @@ h2 {
 }
 
 .header-subtitle {
-    opacity: 0.8;
-    font-size: 14px;
+    font-size: 20px;
 }
 
 /* --- Sections --- */
@@ -295,7 +294,7 @@ section {
 }
 
 .mood-detector-section {
-    text-align: center;
+    text-align: left;
 }
 
 /* Removed camera-container and camera-placeholder styles */
@@ -391,4 +390,16 @@ video {
     width: 1000px;
     height: auto;
     margin-bottom: 10px;
+}
+
+.about-moodlint {
+    margin: 1rem 0;
+    padding: 0.5rem;
+    font-size: 1.1rem;
+    line-height: 1.5;
+    border-radius: 4px;
+}
+
+.about-moodlint p {
+    margin-bottom: 0.75rem;
 }
