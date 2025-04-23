@@ -401,49 +401,74 @@ class AgentDebugApp:
         
         print(f"Result keys: {result.keys() if isinstance(result, dict) else 'not a dict'}")
         
-        # Extract response text from result
+        # Extract response text from result with priority to raw_response
         response_text = None
         
         if isinstance(result, dict):
-            # Check for raw response first
-            if "raw_response" in result and result["raw_response"]:
-                # Check if the direct response looks like a fallback
-                is_likely_fallback = False
-                if "response" in result and isinstance(result["response"], str):
-                    fallback_indicators = ["API connection", "wasn't able to generate", "check that your API key"]
-                    is_likely_fallback = any(indicator in result["response"] for indicator in fallback_indicators)
+            # First priority: Direct raw_response that looks substantial
+            if "raw_response" in result and result["raw_response"] and len(result["raw_response"]) > 100:
+                response_text = result["raw_response"]
+                print(f"Using direct raw_response of length: {len(response_text)}")
+            
+            # Second priority: Check nested raw_response
+            elif "result" in result and isinstance(result["result"], dict) and "raw_response" in result["result"] and len(result["result"]["raw_response"]) > 100:
+                response_text = result["result"]["raw_response"]
+                print(f"Using nested raw_response of length: {len(response_text)}")
+            
+            # Third priority: Check output.raw_response (from workflow DebugResponse)
+            elif "output" in result and isinstance(result["output"], dict) and "raw_response" in result["output"] and len(result["output"]["raw_response"]) > 100:
+                response_text = result["output"]["raw_response"]
+                print(f"Using output.raw_response of length: {len(response_text)}")
+            
+            # Fourth priority: Standard response if it's substantial and not a fallback
+            elif "response" in result and result["response"] and len(result["response"]) > 100:
+                # Check if it looks like a fallback
+                fallback_indicators = ["API connection", "wasn't able to generate", "check that your API key"]
+                is_fallback = any(indicator in result["response"] for indicator in fallback_indicators)
                 
-                # Use raw response if direct response is missing or appears to be a fallback
-                if is_likely_fallback or "response" not in result:
-                    response_text = result["raw_response"]
-                    print(f"Using raw_response instead of fallback response, length: {len(response_text)}")
+                if not is_fallback:
+                    response_text = result["response"]
+                    print(f"Using standard response of length: {len(response_text)}")
             
-            # If no raw response or we didn't use it, try direct response
-            if not response_text and "response" in result and result["response"]:
-                response_text = result["response"]
-                print(f"Found response directly in result, length: {len(response_text)}")
+            # Fifth priority: Check nested response if it's substantial
+            elif "result" in result and isinstance(result["result"], dict) and "response" in result["result"] and len(result["result"]["response"]) > 100:
+                fallback_indicators = ["API connection", "wasn't able to generate", "check that your API key"]
+                is_fallback = any(indicator in result["result"]["response"] for indicator in fallback_indicators)
+                
+                if not is_fallback:
+                    response_text = result["result"]["response"]
+                    print(f"Using nested response of length: {len(response_text)}")
             
-            # If no direct response but we have output
-            elif not response_text and "output" in result and isinstance(result["output"], dict) and "response" in result["output"]:
-                response_text = result["output"]["response"]
-                print(f"Found response in output, length: {len(response_text)}")
-            
-            # If no direct response but we have a nested result
-            elif not response_text and "result" in result and isinstance(result["result"], dict) and "response" in result["result"]:
-                response_text = result["result"]["response"]
-                print(f"Found response in nested result, length: {len(response_text)}")
+            # Sixth priority: Check output response (from workflow DebugResponse)
+            elif "output" in result and isinstance(result["output"], dict) and "response" in result["output"] and len(result["output"]["response"]) > 100:
+                fallback_indicators = ["API connection", "wasn't able to generate", "check that your API key"]
+                is_fallback = any(indicator in result["output"]["response"] for indicator in fallback_indicators)
+                
+                if not is_fallback:
+                    response_text = result["output"]["response"]
+                    print(f"Using output.response of length: {len(response_text)}")
         
-        # If we found a response, display it
-        if response_text:
+        # If we found a valid response, display it
+        if response_text and len(response_text) > 100:
             self.result_text.insert(tk.END, response_text)
         else:
-            # Fallback message if no response was found
-            fallback_message = (
-                f"I've analyzed your {self.filename} file from a {self.mood} perspective.\n\n"
-                "However, I wasn't able to generate a detailed response. This might be due to an issue with the API connection.\n\n"
-                "Please try again or check the logs for more information."
-            )
-            self.result_text.insert(tk.END, fallback_message)
+            # Create a better fallback message if no valid response was found
+            standard_response = None
+            if isinstance(result, dict) and "response" in result and result["response"]:
+                standard_response = result["response"]
+            
+            # If we at least have a standard response that's not too short, use it
+            if standard_response and len(standard_response) > 50:
+                self.result_text.insert(tk.END, standard_response)
+            else:
+                # Final fallback if we have nothing useful
+                query_context = f" about '{self.query}'" if self.query else ""
+                fallback_message = (
+                    f"I've analyzed your {self.filename} file from a {self.mood} perspective{query_context}.\n\n"
+                    "I received a response from the Gemini API, but couldn't properly process it for display.\n\n"
+                    "Please check the console output for more details about the response that was received."
+                )
+                self.result_text.insert(tk.END, fallback_message)
         
         # Disable editing
         self.result_text.config(state=tk.DISABLED)
