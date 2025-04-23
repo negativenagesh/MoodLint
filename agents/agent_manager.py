@@ -90,68 +90,119 @@ class AgentManager:
     
     def debug_code(self, code: str, filename: str, mood: str, user_query: str = "") -> Dict[str, Any]:
         """
-        Debug code with the appropriate mood-aware agent.
+        Debug code using the mood-specific agent.
         
         Args:
-            code: The source code to debug
-            filename: The filename/path
-            mood: The user's current mood
-            user_query: Optional specific query about the code
-                
+            code: Source code to analyze
+            filename: Name of the file being analyzed
+            mood: User's mood (will be normalized)
+            user_query: Optional specific query from the user
+            
         Returns:
-            Dictionary with debugging results
+            Dictionary with analysis results, always including 'success', 'mood', and 'response' keys
         """
-        agent = self.get_agent_for_mood(mood)
-        
         try:
-            # Get analysis
-            analysis = agent.analyze_code(code, filename)
+            # Get the appropriate agent for the mood
+            agent = self.get_agent_for_mood(mood)
+            print(f"Using {agent.mood} agent for analysis")
             
-            # Get the mood-aware response with query
-            prompt = f"Analyze this {filename} file"
-            if user_query and user_query.strip():
-                prompt = f"{user_query} - Analysis for {filename}"
+            try:
+                # Construct the analysis prompt
+                prompt = f"Analyze this {filename} file"
+                if user_query and user_query.strip():
+                    prompt = f"{user_query} - Analysis for {filename}"
+                    print(f"Analysis with query: '{user_query}'")
+                else:
+                    print(f"General analysis without specific query")
                 
-            response = agent.debug_code(code, filename, user_query)
-            
-            # Ensure we have a response
-            if not response or not response.strip():
-                print("Empty response from agent, generating fallback")
-                # Generate a query-specific fallback if the response is empty
+                # Get response from the agent
+                print(f"Sending code ({len(code)} chars) to agent")
+                response = agent.debug_code(code, filename, user_query)
+                
+                # Validate response
+                if not response:
+                    print("WARNING: Empty response from agent")
+                    response = f"I've analyzed your {filename} file from a {mood} perspective, but couldn't generate detailed feedback."
+                elif len(response.strip()) < 50:
+                    print(f"WARNING: Very short response from agent ({len(response)} chars)")
+                    # Keep the response but add a note about its brevity
+                    original_response = response
+                    response = (
+                        f"I've analyzed your {filename} file from a {mood} perspective.\n\n"
+                        f"{original_response}\n\n"
+                        f"Note: The analysis was unusually brief. You might want to try a more specific query."
+                    )
+                
+                # Log successful response
+                print(f"Successful response from agent, length: {len(response)} chars")
+                
+                # Return comprehensive result with both response and raw_response
+                return {
+                    "success": True,
+                    "mood": agent.mood,
+                    "response": response,
+                    "raw_response": response,  # Store the raw response explicitly
+                    "query": user_query,
+                    "filename": filename
+                }
+                
+            except Exception as agent_error:
+                # Detailed error handling for agent-level errors
+                error_message = str(agent_error)
+                error_trace = traceback.format_exc()
+                
+                print(f"ERROR in agent execution: {error_message}")
+                print(f"Traceback: {error_trace}")
+                
+                # Create a helpful error response that's still useful to the user
                 query_context = f" regarding '{user_query}'" if user_query else ""
-                fallback = f"I've analyzed your {filename} file as a {mood} developer{query_context}.\n\n"
-                fallback += "The code implements a workflow system for code analysis with the following components:\n"
-                fallback += "- A preprocessing step that normalizes input\n"
-                fallback += "- A debugging step that applies mood-aware analysis\n"
-                fallback += "- A formatting step that structures the response\n\n"
-                fallback += "The workflow uses LangGraph for state management and handles various error cases."
-                response = fallback
-            
-            print(f"Returning response of length {len(response)}")
-            
-            return {
-                "success": True,
-                "mood": agent.mood,
-                "analysis": analysis,
-                "response": response
-            }
-        except Exception as e:
-            print(f"Agent error: {str(e)}")
+                error_response = (
+                    f"# Analysis of {filename} from a {mood} perspective{query_context}\n\n"
+                    f"I encountered an error while analyzing your code:\n\n"
+                    f"```\n{error_message}\n```\n\n"
+                    f"This might be due to:\n"
+                    f"- API rate limiting\n"
+                    f"- Network connectivity issues\n"
+                    f"- Problems parsing the file structure\n\n"
+                    f"Try simplifying your query or analyzing a smaller code section."
+                )
+                
+                # Return structured error result with the formatted error response
+                return {
+                    "success": False,
+                    "mood": mood,
+                    "error": f"Agent error: {error_message}",
+                    "traceback": error_trace,
+                    "response": error_response,
+                    "raw_response": error_response,  # Include as raw_response too for fallback
+                    "query": user_query,
+                    "filename": filename
+                }
+                
+        except Exception as manager_error:
+            # Handle errors at the AgentManager level (agent creation, etc.)
+            error_message = str(manager_error)
             error_trace = traceback.format_exc()
-            print(f"Error trace: {error_trace}")
             
-            # Generate a query-aware fallback response
-            query_context = f" regarding '{user_query}'" if user_query else ""
-            fallback_response = f"While analyzing your {filename} file as a {mood} developer{query_context}, I encountered an issue.\n\n"
-            fallback_response += "From what I can see, this appears to be a workflow implementation that:\n"
-            fallback_response += "- Processes requests through multiple stages\n"
-            fallback_response += "- Handles different mood states to customize responses\n"
-            fallback_response += "- Uses a state-based architecture for code analysis\n\n"
-            fallback_response += f"Technical error: {str(e)}"
+            print(f"CRITICAL ERROR in AgentManager: {error_message}")
+            print(f"Traceback: {error_trace}")
             
+            # Create a system error response
+            error_response = (
+                f"# System Error\n\n"
+                f"I couldn't analyze your {filename} file due to a system error:\n\n"
+                f"```\n{error_message}\n```\n\n"
+                f"This is likely an issue with the MoodLint system rather than your code."
+            )
+            
+            # Return structured error result
             return {
                 "success": False,
-                "mood": agent.mood,
-                "error": str(e),
-                "response": fallback_response
+                "mood": mood,
+                "error": f"System error: {error_message}",
+                "traceback": error_trace,
+                "response": error_response,
+                "raw_response": error_response,  # Include as raw_response too
+                "query": user_query,
+                "filename": filename
             }
