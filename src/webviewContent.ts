@@ -20,16 +20,20 @@ export function getWebviewContent(
         <div class="app-container">
             <header class="app-header">
                 <img src="${imageUri}" alt="MoodLint Logo" class="logo">
-                <div class="header-subtitle">Emotion-aware code debugging assistant</div>
+                <div class="header-subtitle">You may be in any mood MoodLint will make you productive</div>
             </header>
             <main class="app-content">
                 <section class="mood-detector-section">
-                    <h2>Mood Detection</h2>
-                    <p>MoodLint analyzes your facial expressions to detect your emotional state.</p>
+                    <h2>MoodLint</h2>
+                    <p>Emotion-Based Debugging assistant to make you productive in any mood</p>
                     
-                    <!-- Hidden video/canvas elements for potential future use -->
-                    <video id="camera-feed" autoplay playsinline style="display: none;"></video>
-                    <canvas id="debug-canvas" style="display: none;"></canvas>
+                    <div class="about-moodlint">
+                        <p>MoodLint is a Visual Studio Code extension designed to enhance the debugging experience by integrating real-time emotion analysis with tailored debugging suggestions and artistic code visualizations powered by a Generative Adversarial Network (GAN). But why is such a tool necessary? Research, such as the study "Do Moods Affect Programmers' Debug Performance?" by Khan, Brinkman, and Hierons (2011), provides compelling evidence that programmers' emotional states significantly influence their debugging performance. Below, we explore this connection and explain why a mood-based debugging tool like MoodLint addresses a critical need for developers.</p>
+                        
+                        <p>Debugging is a critical part of software development, requiring intense focus, problem-solving skills, and patience to identify and fix errors in code. A programmer's mood—whether they are stressed, frustrated, anxious, or calm—can directly affect how well they perform this task. Here's why:</p>
+                        
+                        <p>Negative Moods and Cognitive Impact: When a programmer is in a bad mood, such as feeling frustrated after hours of chasing a bug, their ability to concentrate may diminish. Stress or anxiety can lead to tunnel vision, where they fixate on a single approach (even if it's ineffective) or overlook obvious solutions. For example, a stressed programmer might repeatedly tweak the same section of code without stepping back to consider the broader system, prolonging the debugging process. Positive Moods and Creativity: Conversely, a positive or calm mood can enhance creativity and flexibility. A programmer who feels relaxed or confident might approach a bug with fresh perspectives, experimenting with alternative solutions or spotting patterns that a frustrated programmer might miss. This suggests that mood doesn't just affect speed—it can influence the quality of the debugging outcome. Emotional Fatigue: Debugging often involves dealing with complex, elusive problems that can wear down a programmer over time. Emotional fatigue from prolonged debugging sessions can reduce attention to detail, increasing the likelihood of errors or incomplete fixes. Recognizing mood could help mitigate this by prompting breaks or adjustments in approach.</p>
+                    </div>
                     
                     <div class="mood-status">
                         <div class="detected-mood">
