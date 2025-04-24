@@ -22,16 +22,16 @@ body, html {
     background-color: var(--background-color);
     width: 100%;
     height: 100%;
-    overflow: hidden;
+    overflow-y: auto;  /* Changed from hidden to auto */
 }
 
 /* --- Layout --- */
 .app-container {
     display: flex;
     flex-direction: column;
-    height: 100vh;
-    width: 100vw;
-    overflow: hidden;
+    min-height: 100vh;  /* Changed from height to min-height */
+    width: 100%;
+    overflow-y: visible;  /* Changed from hidden to visible */
 }
 
 .app-header {
@@ -42,10 +42,9 @@ body, html {
 
 .app-content {
     flex: 1;
-    overflow-y: auto;
+    overflow-y: visible;  /* Changed from auto to visible */
     padding: var(--spacing-unit);
 }
-
 .app-footer {
     padding: calc(var(--spacing-unit) / 2) var(--spacing-unit);
     border-top: 1px solid var(--border-color);
@@ -384,11 +383,14 @@ video {
     flex-direction: column;
     align-items: center;
     width: 100%;
+    position: relative;  /* Ensure it's not fixed */
 }
 
 .logo {
-    width: 1000px;
-    height: auto;
+    max-width: 100%;  /* Constrain width to container */
+    width: auto;  /* Allow natural width */
+    height: auto;  /* Allow natural height */
+    max-height: 300px;  /* Limit maximum height */
     margin-bottom: 10px;
 }
 
