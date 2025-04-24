@@ -12,9 +12,43 @@ export function getWebviewContent(
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${cspSource} blob: data:; style-src ${cspSource}; script-src 'nonce-${nonce}'; media-src mediastream:;">
+        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${cspSource} blob: data:; style-src ${cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; media-src mediastream:;">
         <title>MoodLint</title>
         <link rel="stylesheet" href="${stylesUri}">
+        <style>
+            /* Ensure proper scrolling */
+            html, body {
+                height: 100%;
+                overflow-y: auto !important;
+            }
+            
+            .app-container {
+                min-height: 100%;
+                overflow-y: visible !important;
+                overflow: visible !important;
+            }
+            
+            .app-content {
+                overflow-y: visible !important;
+            }
+            
+            /* Fix logo scrolling */
+            .logo {
+                max-width: 100%;
+                position: relative !important;
+                width: auto !important;
+                height: auto !important;
+                max-height: 300px;
+            }
+            
+            /* Center buttons */
+            .button-container {
+                display: flex;
+                justify-content: center;
+                gap: 10px;
+                margin-top: var(--spacing-unit);
+            }
+        </style>
     </head>
     <body>
         <div class="app-container">
@@ -49,8 +83,9 @@ export function getWebviewContent(
                             </div>
                         </div>
                     </div>
-                    <div class="camera-actions">
+                    <div class="button-container">
                         <button id="enable-camera-btn" class="primary-button">Go with mood debug</button>
+                        <button id="analyze-btn" class="primary-button" disabled>Start Debugging</button>
                     </div>
                 </section>
                 <section class="settings-section">
@@ -65,9 +100,6 @@ export function getWebviewContent(
                             <input type="checkbox" id="check-best-practices"><label for="check-best-practices">Best practices</label>
                         </div>
                     </div>
-                </section>
-                <section class="actions-section">
-                    <button id="analyze-btn" class="primary-button" disabled>Start Debugging</button>
                 </section>
                 <section class="status-section">
                     <div class="status-indicator"></div>
