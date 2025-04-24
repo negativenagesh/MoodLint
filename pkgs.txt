@@ -23,3 +23,5 @@ seaborn
 opencv-python 
 numpy
 facenet-pytorch
+face-recognition
+dlib
