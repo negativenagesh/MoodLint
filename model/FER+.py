@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
-from torchvision import transforms
+from torchvision import transforms, models
 from PIL import Image
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -11,11 +11,9 @@ import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score, f1_score, precision_score, recall_score
 from facenet_pytorch import MTCNN
-from timm import create_model
 import multiprocessing
 import gc
 import time
-from collections import OrderedDict
 from torch.cuda.amp import autocast, GradScaler
 
 # Fix CUDA reinitialization issue
@@ -44,12 +42,13 @@ if torch.cuda.is_available():
     except Exception as e:
         print(f"Warning: Could not initialize global MTCNN: {e}")
 
-# Define data transforms
+# Define FER+ optimized data transforms - these match Microsoft's approach
 data_transforms = {
     'train': transforms.Compose([
         transforms.Resize((224, 224)),
-        transforms.RandomHorizontalFlip(),
+        transforms.RandomHorizontalFlip(p=0.5),
         transforms.RandomRotation(10),
+        transforms.ColorJitter(brightness=0.2, contrast=0.2),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ]),
@@ -60,27 +59,12 @@ data_transforms = {
     ])
 }
 
-# Use LRU cache to limit memory usage
-class LimitedSizeDict(OrderedDict):
-    def __init__(self, *args, **kwargs):
-        self.size_limit = kwargs.pop("size_limit", None)
-        OrderedDict.__init__(self, *args, **kwargs)
-        self._check_size_limit()
-
-    def __setitem__(self, key, value):
-        OrderedDict.__setitem__(self, key, value)
-        self._check_size_limit()
-
-    def _check_size_limit(self):
-        if self.size_limit is not None:
-            while len(self) > self.size_limit:
-                self.popitem(last=False)
-
-# Memory-efficient face cache (limit to 500 images)
-face_cache = LimitedSizeDict(size_limit=500)
+# Global face cache with a size limit
+face_cache = {}
+MAX_CACHE_SIZE = 500
 
 def extract_face(image_path, mtcnn=None):
-    """Extract face from image using the global MTCNN to avoid worker conflicts"""
+    """Extract face from image using MTCNN"""
     if image_path in face_cache:
         return face_cache[image_path]
     
@@ -108,6 +92,11 @@ def extract_face(image_path, mtcnn=None):
                 face_img = image
         else:
             face_img = image
+        
+        # Manage cache size
+        if len(face_cache) >= MAX_CACHE_SIZE:
+            # Remove a random key to keep memory usage bounded
+            face_cache.pop(next(iter(face_cache)))
             
         face_cache[image_path] = face_img
         return face_img
@@ -116,7 +105,7 @@ def extract_face(image_path, mtcnn=None):
         return None
 
 class EmotionDataset(Dataset):
-    """Memory-optimized dataset for emotion recognition"""
+    """Dataset for emotion recognition with FER+ optimizations"""
     
     def __init__(self, image_paths, labels, transform=None, extract_faces=True, mtcnn_detector=None):
         self.image_paths = image_paths
@@ -125,13 +114,15 @@ class EmotionDataset(Dataset):
         self.extract_faces = extract_faces
         self.mtcnn = mtcnn_detector
         
-        # Process faces in smaller batches to save memory
+        # Pre-process faces in batches to avoid memory overload
         if self.extract_faces and self.mtcnn is not None:
             print(f"Pre-processing faces in batches...")
-            batch_size = 50  # Process 50 images at a time
+            batch_size = 30  # Process 30 images at a time
             for i in range(0, len(image_paths), batch_size):
                 print(f"Processing batch {i//batch_size + 1}/{(len(image_paths) + batch_size - 1)//batch_size}")
-                batch_paths = image_paths[i:i+batch_size]
+                batch_end = min(i + batch_size, len(image_paths))
+                batch_paths = image_paths[i:batch_end]
+                
                 for path in batch_paths:
                     if path not in face_cache:
                         extract_face(path, self.mtcnn)
@@ -198,8 +189,7 @@ def load_dataset(dataset_dir, emotions, extract_faces=True):
             if not os.path.isfile(img_path):
                 continue
                 
-            # Just check if the file exists and has a valid extension
-            # We'll verify the image during face extraction to save memory
+            # Just add file path without loading to save memory
             image_paths.append(img_path)
             labels.append(idx)
             emotion_count += 1
@@ -210,7 +200,7 @@ def load_dataset(dataset_dir, emotions, extract_faces=True):
     if not image_paths:
         raise ValueError("No valid images found in the dataset")
     
-    # Split data into train, validation, and test sets with stratification
+    # Split data with stratification for better class balance
     train_paths, temp_paths, train_labels, temp_labels = train_test_split(
         image_paths, labels, test_size=0.3, random_state=42, stratify=labels
     )
@@ -224,105 +214,57 @@ def load_dataset(dataset_dir, emotions, extract_faces=True):
     
     return train_paths, val_paths, test_paths, train_labels, val_labels, test_labels
 
-class EmotionNet(nn.Module):
-    """Memory-optimized model for emotion detection"""
-    def __init__(self, num_classes=5, backbone='efficientnet_b2', pretrained=True):
-        super(EmotionNet, self).__init__()
+class FERPlusNet(nn.Module):
+    """FER+ optimized model architecture based on Microsoft research"""
+    def __init__(self, num_classes=5):
+        super(FERPlusNet, self).__init__()
         
-        # Load the base model
-        try:
-            self.base_model = create_model(
-                backbone, 
-                pretrained=pretrained,
-                num_classes=0,
-                global_pool='avg'
-            )
-            print(f"Loaded pretrained {backbone} weights")
-        except Exception as e:
-            print(f"Failed to load pretrained weights: {e}. Using random initialization.")
-            self.base_model = create_model(backbone, pretrained=False, num_classes=0)
+        # Use Microsoft recommended VGG-based architecture for FER+
+        # Load base VGG model (without classifier)
+        self.base_model = models.vgg13_bn(pretrained=True)
+        self.base_model.features = self.base_model.features[:-1]  # Remove last max pooling
         
-        # Get the number of features
-        if backbone.startswith('efficientnet_b0'):
-            num_features = 1280
-        elif backbone.startswith('efficientnet_b1'):
-            num_features = 1280
-        elif backbone.startswith('efficientnet_b2'):
-            num_features = 1408
-        elif backbone.startswith('efficientnet_b3'):
-            num_features = 1536
-        elif backbone.startswith('efficientnet_b4'):
-            num_features = 1792
-        elif backbone.startswith('efficientnet_b5'):
-            num_features = 2048
-        elif backbone.startswith('efficientnet_b6'):
-            num_features = 2304
-        elif backbone.startswith('efficientnet_b7'):
-            num_features = 2560
-        else:
-            num_features = 1280
+        # Feature extraction layers
+        self.features = self.base_model.features
         
-        # Feature enhancement layers - More memory efficient
-        self.feature_enhancer = nn.Sequential(
-            nn.BatchNorm1d(num_features),
-            nn.Linear(num_features, 1024),
-            nn.LeakyReLU(),
-            nn.Dropout(0.4),
-            nn.BatchNorm1d(1024)
-        )
-        
-        # Attention mechanism
+        # Spatial Attention Module (similar to Microsoft implementation)
         self.attention = nn.Sequential(
-            nn.Linear(1024, 512),
-            nn.Tanh(),
-            nn.Linear(512, 1)
+            nn.Conv2d(512, 256, kernel_size=1),
+            nn.BatchNorm2d(256),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(256, 1, kernel_size=1),
+            nn.Sigmoid()
         )
         
-        # Feature transformation
-        self.feature_transform = nn.Sequential(
-            nn.Linear(1024, 768),
-            nn.GELU(),
-            nn.Dropout(0.3),
-            nn.BatchNorm1d(768)
-        )
-            
-        # Emotion classifier head
+        # Global average pooling
+        self.global_pool = nn.AdaptiveAvgPool2d(1)
+        
+        # Classifier as per Microsoft FER+ recommendations
         self.classifier = nn.Sequential(
-            nn.Linear(768, 512),
-            nn.ReLU(),
-            nn.Dropout(0.4),
             nn.Linear(512, 256),
-            nn.ReLU(),
-            nn.Dropout(0.4),
+            nn.BatchNorm1d(256),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.5),
             nn.Linear(256, 128),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(128, 64),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(64, num_classes)
+            nn.BatchNorm1d(128),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.5),
+            nn.Linear(128, num_classes)
         )
-        
+    
     def forward(self, x):
-        # Extract base features
-        base_features = self.base_model(x)
-        
-        # Enhance features
-        enhanced_features = self.feature_enhancer(base_features)
+        # Extract features
+        features = self.features(x)
         
         # Apply attention
-        attention_weights = torch.sigmoid(self.attention(enhanced_features))
-        attended_features = enhanced_features * attention_weights
+        attention_mask = self.attention(features)
+        attended_features = features * attention_mask
         
-        # Apply feature transformation
-        transformed_features = self.feature_transform(attended_features)
+        # Global pooling
+        pooled_features = self.global_pool(attended_features).view(x.size(0), -1)
         
-        # Add residual connection if shapes match
-        if transformed_features.shape == base_features.shape:
-            transformed_features = transformed_features + base_features
-            
-        # Apply classifier
-        output = self.classifier(transformed_features)
+        # Classification
+        output = self.classifier(pooled_features)
         
         return output
 
@@ -354,7 +296,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer,
             images, labels = images.to(device, non_blocking=True), labels.to(device, non_blocking=True)
             
             # Zero the parameter gradients
-            optimizer.zero_grad(set_to_none=True)  # More memory efficient
+            optimizer.zero_grad(set_to_none=True)
             
             # Forward pass with mixed precision
             with autocast():
@@ -372,7 +314,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer,
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
             
-            # Print batch progress every 10 batches
+            # Print batch progress 
             if i % 10 == 0:
                 print(f"Epoch {epoch+1}/{num_epochs} - Batch {i}/{len(train_loader)}")
                 
@@ -429,7 +371,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer,
                 'optimizer_state_dict': optimizer.state_dict(),
                 'val_loss': val_loss,
                 'val_acc': val_acc,
-            }, "best_emotionnet_model.pth")
+            }, "best_ferplus_model.pth")
             print(f"Checkpoint saved (val_loss: {val_loss:.4f})")
             patience_counter = 0
         else:
@@ -454,6 +396,7 @@ def evaluate_model(model, data_loader, criterion, class_names):
     running_loss = 0.0
     all_predictions = []
     all_labels = []
+    all_probs = []
     
     # Process in batches to avoid memory overload
     with torch.no_grad():
@@ -466,11 +409,13 @@ def evaluate_model(model, data_loader, criterion, class_names):
                 loss = criterion(outputs, labels)
             
             running_loss += loss.item() * images.size(0)
+            probabilities = torch.nn.functional.softmax(outputs, dim=1)
             _, preds = torch.max(outputs, 1)
             
             # Move predictions and labels to CPU to save GPU memory
             all_predictions.extend(preds.cpu().numpy())
             all_labels.extend(labels.cpu().numpy())
+            all_probs.extend(probabilities.cpu().numpy())
             
     # Clear GPU memory
     torch.cuda.empty_cache()
@@ -478,6 +423,7 @@ def evaluate_model(model, data_loader, criterion, class_names):
     # Convert to numpy arrays
     all_predictions = np.array(all_predictions)
     all_labels = np.array(all_labels)
+    all_probs = np.array(all_probs)
     
     # Calculate metrics
     avg_loss = running_loss / len(data_loader.dataset)
@@ -491,11 +437,7 @@ def evaluate_model(model, data_loader, criterion, class_names):
     
     # Calculate ROC AUC score
     try:
-        # One-hot encode the predictions and labels for ROC AUC calculation
-        n_classes = len(class_names)
-        y_true_one_hot = np.eye(n_classes)[all_labels]
-        y_pred_one_hot = np.eye(n_classes)[all_predictions]
-        auc = roc_auc_score(y_true_one_hot, y_pred_one_hot, average='weighted')
+        auc = roc_auc_score(all_labels, all_probs, multi_class='ovr', average='weighted')
     except Exception as e:
         print(f"Error calculating AUC: {e}")
         auc = 0.0
@@ -503,7 +445,7 @@ def evaluate_model(model, data_loader, criterion, class_names):
     # Print detailed classification report
     print("\nClassification Report:")
     print(classification_report(all_labels, all_predictions, 
-                               target_names=class_names, digits=4))
+                                target_names=class_names, digits=4))
     
     return {
         'loss': avg_loss,
@@ -512,95 +454,19 @@ def evaluate_model(model, data_loader, criterion, class_names):
         'recall': recall,
         'f1_score': f1,
         'confusion_matrix': cm,
-        'auc': auc
+        'auc': auc,
+        'probabilities': all_probs
     }
 
-def plot_results(train_losses, val_losses, train_accs, val_accs):
-    """Plot training results without using too much memory"""
-    plt.figure(figsize=(15, 5))
-    
-    # Plot loss curves
-    plt.subplot(1, 2, 1)
-    plt.plot(train_losses, label='Train Loss')
-    plt.plot(val_losses, label='Validation Loss')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.title('Training and Validation Loss')
-    plt.legend()
-    plt.grid(True)
-    
-    # Plot accuracy curves
-    plt.subplot(1, 2, 2)
-    plt.plot(train_accs, label='Train Accuracy')
-    plt.plot(val_accs, label='Validation Accuracy')
-    plt.xlabel('Epoch')
-    plt.ylabel('Accuracy (%)')
-    plt.title('Training and Validation Accuracy')
-    plt.legend()
-    plt.grid(True)
-    
-    plt.tight_layout()
-    plt.savefig('training_curves.png', dpi=100)  # Lower DPI to save memory
-    plt.close()  # Close the figure to free memory
-
-def visualize_predictions(model, data_loader, class_names, num_images=8):
-    """Memory-efficient visualization of predictions"""
-    model.eval()
-    images_so_far = 0
-    
-    # Create a figure
-    plt.figure(figsize=(15, 12))
-    
-    # Process only a few batches to save memory
-    with torch.no_grad():
-        for inputs, labels in data_loader:
-            if images_so_far >= num_images:
-                break
-                
-            inputs = inputs.to(device, non_blocking=True)
-            labels = labels.to(device, non_blocking=True)
-            
-            # Use mixed precision for inference
-            with autocast():
-                outputs = model(inputs)
-            _, preds = torch.max(outputs, 1)
-            
-            for j in range(min(inputs.size()[0], num_images - images_so_far)):
-                images_so_far += 1
-                ax = plt.subplot(num_images//2, 2, images_so_far)
-                ax.axis('off')
-                ax.set_title(f'True: {class_names[labels[j]]}\nPred: {class_names[preds[j]]}',
-                           color=('green' if preds[j] == labels[j] else 'red'))
-                
-                # Convert tensor to numpy and un-normalize (on CPU)
-                img = inputs.cpu()[j].numpy().transpose((1, 2, 0))
-                mean = np.array([0.485, 0.456, 0.406])
-                std = np.array([0.229, 0.224, 0.225])
-                img = std * img + mean
-                img = np.clip(img, 0, 1)
-                
-                plt.imshow(img)
-                
-                if images_so_far >= num_images:
-                    break
-    
-    plt.tight_layout()
-    plt.savefig('prediction_examples.png', dpi=100)  # Lower DPI to save memory
-    plt.close()  # Close the figure to free memory
-    
-    # Free up memory
-    torch.cuda.empty_cache()
-    gc.collect()
-
 def main():
-    """GPU-optimized main function"""
+    """GPU-optimized main function with FER+ approach"""
     # Set random seeds for reproducibility
     seed = 42
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
     np.random.seed(seed)
     
-    # Define emotion classes
+    # Define emotion classes for our dataset
     emotions = ['angry', 'exhausted', 'frustration', 'happy', 'sad']
     
     # Path to the expression dataset
@@ -650,7 +516,7 @@ def main():
     print("\nCreating data loaders...")
     
     # Smaller batch size to save GPU memory
-    batch_size = 8 if torch.cuda.is_available() else 16
+    batch_size = 16 if torch.cuda.is_available() else 32
     
     # Process datasets one by one to save memory
     print("Creating training dataset...")
@@ -689,9 +555,10 @@ def main():
     gc.collect()
     torch.cuda.empty_cache()
     
-    # No workers for CUDA
+    # No workers for CUDA to avoid memory issues
     num_workers = 0 if torch.cuda.is_available() else 2
     
+    # Create the data loaders with pin_memory for faster GPU transfer
     train_loader = DataLoader(
         train_dataset, batch_size=batch_size, 
         shuffle=True, num_workers=num_workers, pin_memory=True
@@ -716,18 +583,25 @@ def main():
     torch.cuda.empty_cache()
     
     # Create the model
-    print("\nInitializing EmotionNet model...")
-    model = EmotionNet(
-        num_classes=len(emotions), 
-        backbone='efficientnet_b2',
-        pretrained=True
-    ).to(device)
+    print("\nInitializing FER+ model...")
+    model = FERPlusNet(num_classes=len(emotions)).to(device)
     
-    # Define loss function and optimizer
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.AdamW(
+    # Print model summary
+    print(f"Model architecture:")
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"Total parameters: {total_params:,}")
+    print(f"Trainable parameters: {trainable_params:,}")
+    
+    # Define weighted loss function to handle class imbalance (Microsoft FER+ approach)
+    class_weights = torch.FloatTensor([1/count for count in train_class_counts]).to(device)
+    criterion = nn.CrossEntropyLoss(weight=class_weights)
+    
+    # Define optimizer with FER+ recommended parameters
+    optimizer = optim.SGD(
         model.parameters(), 
-        lr=3e-4, 
+        lr=0.01,
+        momentum=0.9,
         weight_decay=1e-4
     )
     
@@ -735,11 +609,11 @@ def main():
     gc.collect()
     torch.cuda.empty_cache()
     
-    print("\nTraining EmotionNet model with mixed precision...")
+    print("\nTraining FER+ model with mixed precision...")
     train_losses, val_losses, train_accs, val_accs = train_model(
         model, train_loader, val_loader, 
         criterion, optimizer,
-        num_epochs=25, early_stopping_patience=7
+        num_epochs=30, early_stopping_patience=7
     )
     
     # Memory cleanup
@@ -748,7 +622,31 @@ def main():
     
     # Plot training curves
     print("\nPlotting training results...")
-    plot_results(train_losses, val_losses, train_accs, val_accs)
+    plt.figure(figsize=(15, 5))
+    
+    # Plot loss curves
+    plt.subplot(1, 2, 1)
+    plt.plot(train_losses, label='Train Loss')
+    plt.plot(val_losses, label='Validation Loss')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.title('Training and Validation Loss')
+    plt.legend()
+    plt.grid(True)
+    
+    # Plot accuracy curves
+    plt.subplot(1, 2, 2)
+    plt.plot(train_accs, label='Train Accuracy')
+    plt.plot(val_accs, label='Validation Accuracy')
+    plt.xlabel('Epoch')
+    plt.ylabel('Accuracy (%)')
+    plt.title('Training and Validation Accuracy')
+    plt.legend()
+    plt.grid(True)
+    
+    plt.tight_layout()
+    plt.savefig('ferplus_training_curves.png', dpi=100)
+    plt.close()
     
     # Memory cleanup
     gc.collect()
@@ -759,7 +657,7 @@ def main():
     test_metrics = evaluate_model(model, test_loader, criterion, emotions)
     
     # Print test results
-    print(f"\nEmotionNet Test Results:")
+    print(f"\nFER+ Model Test Results:")
     print(f"Loss: {test_metrics['loss']:.4f}")
     print(f"Accuracy: {test_metrics['accuracy']:.2f}%")
     print(f"Precision: {test_metrics['precision']:.4f}")
@@ -779,26 +677,18 @@ def main():
     plt.ylabel('True')
     plt.title('Confusion Matrix')
     plt.tight_layout()
-    plt.savefig('confusion_matrix.png', dpi=100)
-    plt.close()  # Close to free memory
-    
-    # Memory cleanup
-    gc.collect()
-    torch.cuda.empty_cache()
-    
-    # Visualize some predictions
-    print("\nVisualizing model predictions...")
-    visualize_predictions(model, test_loader, emotions, num_images=8)
+    plt.savefig('ferplus_confusion_matrix.png', dpi=100)
+    plt.close()
     
     # Save the final model
     torch.save({
         'model_state_dict': model.state_dict(),
         'class_names': emotions,
         'test_accuracy': test_metrics['accuracy'],
-    }, "emotionnet_final_model.pth")
+    }, "ferplus_final_model.pth")
     
     print("\nTraining and evaluation complete!")
-    print(f"Final model saved as 'emotionnet_final_model.pth'")
+    print(f"Final model saved as 'ferplus_final_model.pth'")
     
     # Final memory cleanup
     gc.collect()
