@@ -205,6 +205,9 @@ function stopPythonCameraApp() {
 /**
  * Creates and manages the MoodLint webview panel
  */
+/**
+ * Creates and manages the MoodLint webview panel
+ */
 function createMoodlintPanel(context: vscode.ExtensionContext) {
     if (moodlintPanel) {
         console.log('[Extension] Reusing existing panel');
@@ -227,6 +230,10 @@ function createMoodlintPanel(context: vscode.ExtensionContext) {
         }
     );
 
+    // Set the tab icon - this is what shows in the VS Code tab
+    const iconPath = vscode.Uri.file(path.join(context.extensionPath, 'MoodLint-logo', 'logo.png'));
+    moodlintPanel.iconPath = iconPath;
+
     // Now that we have created the panel, we can safely use it
     const stylesPath = vscode.Uri.file(path.join(context.extensionPath, 'media', 'styles.css'));
     const stylesUri = moodlintPanel.webview.asWebviewUri(stylesPath);
@@ -235,11 +242,15 @@ function createMoodlintPanel(context: vscode.ExtensionContext) {
     const imagePath = vscode.Uri.file(path.join(context.extensionPath, 'MoodLint-logo', 'cover.png'));
     const imageUri = moodlintPanel.webview.asWebviewUri(imagePath);
     
+    // Add favicon for the webview
+    const faviconPath = vscode.Uri.file(path.join(context.extensionPath, 'MoodLint-logo', 'logo.png'));
+    const faviconUri = moodlintPanel.webview.asWebviewUri(faviconPath);
+    
     // Generate a nonce for content security policy
     const nonce = getNonce();
     const cspSource = moodlintPanel.webview.cspSource;
 
-    moodlintPanel.webview.html = getWebviewContent(stylesUri, scriptUri, imageUri, nonce, cspSource);
+    moodlintPanel.webview.html = getWebviewContent(stylesUri, scriptUri, imageUri, faviconUri, nonce, cspSource);
 
     moodlintPanel.onDidDispose(
         () => {
@@ -322,10 +333,6 @@ function processMoodFromPython(mood: string, confidence: number) {
 }
 
 /**
- * Analyze code based on mood using the agent system
- */
-
-/**
  * Extract issues from the agent's text response
  */
 function extractIssuesFromResponse(response: string, mood: string): any[] {
@@ -366,7 +373,6 @@ function extractIssuesFromResponse(response: string, mood: string): any[] {
     
     return issues;
 }
-
 
 export function deactivate() {
     console.log('[Extension] MoodLint deactivated');
