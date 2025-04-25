@@ -268,13 +268,15 @@ class FERPlusNet(nn.Module):
         
         return output
 
-def train_model(model, train_loader, val_loader, criterion, optimizer, 
-                num_epochs=10, early_stopping_patience=5):
-    """GPU-optimized training with mixed precision"""
+def train_model(model, train_loader, val_loader, test_loader, criterion, optimizer, 
+                num_epochs=60, early_stopping_patience=5):
+    """GPU-optimized training with mixed precision and test evaluation"""
     train_losses = []
     val_losses = []
+    test_losses = []
     train_accs = []
     val_accs = []
+    test_accs = []
     
     best_val_loss = float('inf')
     best_model_state = None
@@ -352,13 +354,39 @@ def train_model(model, train_loader, val_loader, criterion, optimizer,
         val_losses.append(val_loss)
         val_accs.append(val_acc)
         
+        # Test phase
+        model.eval()
+        test_loss = 0.0
+        test_correct = 0
+        test_total = 0
+        
+        with torch.no_grad():
+            for images, labels in test_loader:
+                images, labels = images.to(device, non_blocking=True), labels.to(device, non_blocking=True)
+                
+                # Use mixed precision for inference too
+                with autocast():
+                    outputs = model(images)
+                    loss = criterion(outputs, labels)
+                
+                test_loss += loss.item() * images.size(0)
+                _, predicted = torch.max(outputs, 1)
+                test_total += labels.size(0)
+                test_correct += (predicted == labels).sum().item()
+        
+        test_loss = test_loss / len(test_loader.dataset)
+        test_acc = 100 * test_correct / test_total
+        test_losses.append(test_loss)
+        test_accs.append(test_acc)
+        
         # Epoch timing
         time_elapsed = time.time() - start_time
         
-        # Print epoch results
+        # Print epoch results including test accuracy
         print(f"Epoch {epoch+1}/{num_epochs} - Time: {time_elapsed:.1f}s - "
               f"Train Loss: {epoch_loss:.4f}, Train Acc: {epoch_acc:.2f}% - "
-              f"Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.2f}%")
+              f"Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.2f}% - "
+              f"Test Loss: {test_loss:.4f}, Test Acc: {test_acc:.2f}%")
         
         # Early stopping and model checkpoint
         if val_loss < best_val_loss:
@@ -371,8 +399,9 @@ def train_model(model, train_loader, val_loader, criterion, optimizer,
                 'optimizer_state_dict': optimizer.state_dict(),
                 'val_loss': val_loss,
                 'val_acc': val_acc,
+                'test_acc': test_acc,  # Save test accuracy in checkpoint
             }, "best_ferplus_model.pth")
-            print(f"Checkpoint saved (val_loss: {val_loss:.4f})")
+            print(f"Checkpoint saved (val_loss: {val_loss:.4f}, test_acc: {test_acc:.2f}%)")
             patience_counter = 0
         else:
             patience_counter += 1
@@ -388,7 +417,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer,
     if best_model_state:
         model.load_state_dict(best_model_state)
     
-    return train_losses, val_losses, train_accs, val_accs
+    return train_losses, val_losses, test_losses, train_accs, val_accs, test_accs
 
 def evaluate_model(model, data_loader, criterion, class_names):
     """Memory-efficient evaluation"""
@@ -610,17 +639,17 @@ def main():
     torch.cuda.empty_cache()
     
     print("\nTraining FER+ model with mixed precision...")
-    train_losses, val_losses, train_accs, val_accs = train_model(
-        model, train_loader, val_loader, 
+    train_losses, val_losses, test_losses, train_accs, val_accs, test_accs = train_model(
+        model, train_loader, val_loader, test_loader,  # Added test_loader
         criterion, optimizer,
-        num_epochs=30, early_stopping_patience=7
+        num_epochs=90, early_stopping_patience=7
     )
     
     # Memory cleanup
     gc.collect()
     torch.cuda.empty_cache()
     
-    # Plot training curves
+    # Plot training curves including test accuracy
     print("\nPlotting training results...")
     plt.figure(figsize=(15, 5))
     
@@ -628,9 +657,10 @@ def main():
     plt.subplot(1, 2, 1)
     plt.plot(train_losses, label='Train Loss')
     plt.plot(val_losses, label='Validation Loss')
+    plt.plot(test_losses, label='Test Loss')  # Added test loss
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
-    plt.title('Training and Validation Loss')
+    plt.title('Training, Validation, and Test Loss')
     plt.legend()
     plt.grid(True)
     
@@ -638,9 +668,10 @@ def main():
     plt.subplot(1, 2, 2)
     plt.plot(train_accs, label='Train Accuracy')
     plt.plot(val_accs, label='Validation Accuracy')
+    plt.plot(test_accs, label='Test Accuracy')  # Added test accuracy
     plt.xlabel('Epoch')
     plt.ylabel('Accuracy (%)')
-    plt.title('Training and Validation Accuracy')
+    plt.title('Training, Validation, and Test Accuracy')
     plt.legend()
     plt.grid(True)
     
@@ -652,7 +683,7 @@ def main():
     gc.collect()
     torch.cuda.empty_cache()
     
-    # Evaluate the model on the test set
+    # Evaluate the model on the test set for final detailed metrics
     print("\nEvaluating model on test set...")
     test_metrics = evaluate_model(model, test_loader, criterion, emotions)
     
