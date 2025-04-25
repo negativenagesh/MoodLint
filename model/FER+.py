@@ -10,7 +10,6 @@ import seaborn as sns
 import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score, f1_score, precision_score, recall_score
-from facenet_pytorch import MTCNN
 import multiprocessing
 import gc
 import time
@@ -26,21 +25,6 @@ torch.cuda.empty_cache()
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f"Using device: {device}")
-
-# Initialize a single MTCNN instance for the main process
-mtcnn_global = None
-if torch.cuda.is_available():
-    try:
-        mtcnn_global = MTCNN(
-            keep_all=False,
-            device=device,
-            select_largest=True,
-            post_process=False,
-            image_size=224
-        )
-        print("Global MTCNN initialized successfully")
-    except Exception as e:
-        print(f"Warning: Could not initialize global MTCNN: {e}")
 
 # Define FER+ optimized data transforms - these match Microsoft's approach
 data_transforms = {
@@ -59,79 +43,13 @@ data_transforms = {
     ])
 }
 
-# Global face cache with a size limit
-face_cache = {}
-MAX_CACHE_SIZE = 500
-
-def extract_face(image_path, mtcnn=None):
-    """Extract face from image using MTCNN"""
-    if image_path in face_cache:
-        return face_cache[image_path]
-    
-    try:
-        image = Image.open(image_path).convert("RGB")
-        
-        if mtcnn is not None:
-            try:
-                boxes, probs = mtcnn.detect(image)
-                
-                if boxes is not None:
-                    box = boxes[0]
-                    margin = 20
-                    x1, y1, x2, y2 = [int(b) for b in box]
-                    x1 = max(0, x1 - margin)
-                    y1 = max(0, y1 - margin)
-                    x2 = min(image.width, x2 + margin)
-                    y2 = min(image.height, y2 + margin)
-                    
-                    face_img = image.crop((x1, y1, x2, y2))
-                else:
-                    face_img = image
-            except Exception as e:
-                print(f"Face detection error in {image_path}: {e}")
-                face_img = image
-        else:
-            face_img = image
-        
-        # Manage cache size
-        if len(face_cache) >= MAX_CACHE_SIZE:
-            # Remove a random key to keep memory usage bounded
-            face_cache.pop(next(iter(face_cache)))
-            
-        face_cache[image_path] = face_img
-        return face_img
-    except Exception as e:
-        print(f"Error in extract_face for {image_path}: {e}")
-        return None
-
 class EmotionDataset(Dataset):
-    """Dataset for emotion recognition with FER+ optimizations"""
+    """Simplified dataset for emotion recognition with pre-cropped face images"""
     
-    def __init__(self, image_paths, labels, transform=None, extract_faces=True, mtcnn_detector=None):
+    def __init__(self, image_paths, labels, transform=None):
         self.image_paths = image_paths
         self.labels = labels
         self.transform = transform
-        self.extract_faces = extract_faces
-        self.mtcnn = mtcnn_detector
-        
-        # Pre-process faces in batches to avoid memory overload
-        if self.extract_faces and self.mtcnn is not None:
-            print(f"Pre-processing faces in batches...")
-            batch_size = 30  # Process 30 images at a time
-            for i in range(0, len(image_paths), batch_size):
-                print(f"Processing batch {i//batch_size + 1}/{(len(image_paths) + batch_size - 1)//batch_size}")
-                batch_end = min(i + batch_size, len(image_paths))
-                batch_paths = image_paths[i:batch_end]
-                
-                for path in batch_paths:
-                    if path not in face_cache:
-                        extract_face(path, self.mtcnn)
-                
-                # Force garbage collection after each batch
-                gc.collect()
-                torch.cuda.empty_cache()
-                
-            print(f"Completed face extraction")
 
     def __len__(self):
         return len(self.image_paths)
@@ -141,23 +59,17 @@ class EmotionDataset(Dataset):
         label = self.labels[idx]
         
         try:
-            # Get face from cache or extract it
-            if self.extract_faces:
-                if img_path in face_cache:
-                    face_img = face_cache[img_path]
-                else:
-                    face_img = extract_face(img_path, None)
-            else:
-                face_img = Image.open(img_path).convert("RGB")
+            # Directly load the image (already a face)
+            image = Image.open(img_path).convert("RGB")
             
             # Apply transformations
-            if self.transform and face_img is not None:
-                face_img = self.transform(face_img)
+            if self.transform:
+                image = self.transform(image)
             else:
-                # Create a dummy image
-                face_img = torch.zeros((3, 224, 224), device='cpu')
+                # Create a dummy image if transform fails
+                image = torch.zeros((3, 224, 224), device='cpu')
                 
-            return face_img, label
+            return image, label
             
         except Exception as e:
             print(f"Error loading image {img_path}: {e}")
@@ -165,7 +77,7 @@ class EmotionDataset(Dataset):
             dummy_image = torch.zeros((3, 224, 224), device='cpu')
             return dummy_image, label
 
-def load_dataset(dataset_dir, emotions, extract_faces=True):
+def load_dataset(dataset_dir, emotions):
     """Memory-optimized dataset loading"""
     image_paths = []
     labels = []
@@ -509,7 +421,7 @@ def main():
     try:
         print("Loading dataset...")
         train_paths, val_paths, test_paths, train_labels, val_labels, test_labels = load_dataset(
-            dataset_dir, emotions, extract_faces=False
+            dataset_dir, emotions
         )
         
         print(f"Dataset statistics:")
@@ -551,9 +463,7 @@ def main():
     print("Creating training dataset...")
     train_dataset = EmotionDataset(
         train_paths, train_labels, 
-        transform=data_transforms['train'],
-        extract_faces=True,
-        mtcnn_detector=mtcnn_global
+        transform=data_transforms['train']
     )
     
     # Clear cache between datasets
@@ -563,9 +473,7 @@ def main():
     print("Creating validation dataset...")
     val_dataset = EmotionDataset(
         val_paths, val_labels, 
-        transform=data_transforms['val'],
-        extract_faces=True,
-        mtcnn_detector=mtcnn_global
+        transform=data_transforms['val']
     )
     
     # Clear cache between datasets
@@ -575,9 +483,7 @@ def main():
     print("Creating test dataset...")
     test_dataset = EmotionDataset(
         test_paths, test_labels, 
-        transform=data_transforms['val'],
-        extract_faces=True,
-        mtcnn_detector=mtcnn_global
+        transform=data_transforms['val']
     )
     
     # Clear cache again
@@ -640,7 +546,7 @@ def main():
     
     print("\nTraining FER+ model with mixed precision...")
     train_losses, val_losses, test_losses, train_accs, val_accs, test_accs = train_model(
-        model, train_loader, val_loader, test_loader,  # Added test_loader
+        model, train_loader, val_loader, test_loader,
         criterion, optimizer,
         num_epochs=90, early_stopping_patience=7
     )
@@ -657,7 +563,7 @@ def main():
     plt.subplot(1, 2, 1)
     plt.plot(train_losses, label='Train Loss')
     plt.plot(val_losses, label='Validation Loss')
-    plt.plot(test_losses, label='Test Loss')  # Added test loss
+    plt.plot(test_losses, label='Test Loss')
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
     plt.title('Training, Validation, and Test Loss')
@@ -668,7 +574,7 @@ def main():
     plt.subplot(1, 2, 2)
     plt.plot(train_accs, label='Train Accuracy')
     plt.plot(val_accs, label='Validation Accuracy')
-    plt.plot(test_accs, label='Test Accuracy')  # Added test accuracy
+    plt.plot(test_accs, label='Test Accuracy')
     plt.xlabel('Epoch')
     plt.ylabel('Accuracy (%)')
     plt.title('Training, Validation, and Test Accuracy')
