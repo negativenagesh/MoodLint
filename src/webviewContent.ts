@@ -4,6 +4,7 @@ export function getWebviewContent(
     stylesUri: vscode.Uri, 
     scriptUri: vscode.Uri,
     imageUri: vscode.Uri,
+    faviconUri: vscode.Uri,
     nonce: string,
     cspSource: string
 ): string {
@@ -14,6 +15,7 @@ export function getWebviewContent(
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${cspSource} blob: data:; style-src ${cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; media-src mediastream:;">
         <title>MoodLint</title>
+        <link rel="shortcut icon" type="image/png" href="${faviconUri}" />
         <link rel="stylesheet" href="${stylesUri}">
         <style>
             /* Ensure proper scrolling */
