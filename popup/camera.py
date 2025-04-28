@@ -139,7 +139,7 @@ class CameraApp:
             # Set status
             if self.is_tkinter:
                 self.status_var.set("Analyzing mood...")
-                self.root.update()
+                self.root.update()  # Force UI update immediately
             
             # Run the inference script as a subprocess
             process = subprocess.Popen(
@@ -163,7 +163,28 @@ class CameraApp:
                     print(json.dumps({"error": result["error"]}), flush=True)
                     return None, 0.0
                 
-                return result.get("mood"), result.get("confidence", 0.0)
+                # Map the model output mood to the expected format for the agent
+                mood = result.get("mood")
+                confidence = result.get("confidence", 0.0)
+                
+                # Convert model output to agent-compatible mood
+                mood_mapping = {
+                    "Angry": "angry",
+                    "Happy": "happy",
+                    "Sad": "sad",
+                    "Neutral": "neutral",
+                    "Surprise": "surprise"
+                }
+                
+                # Map to agent-compatible mood (lowercase and handle neutral/surprise)
+                agent_mood = mood_mapping.get(mood, "neutral").lower()
+                
+                # If neutral or surprise, map to one of the agent moods
+                if agent_mood in ["neutral", "surprise"]:
+                    agent_mood = "happy"  # Default to happy for neutral/surprise
+                
+                return agent_mood, confidence
+                
             except json.JSONDecodeError:
                 print(json.dumps({"error": f"Invalid JSON from inference: {stdout}"}), flush=True)
                 return None, 0.0
@@ -191,7 +212,8 @@ class CameraApp:
                 
                 # Update status
                 if self.is_tkinter:
-                    self.status_var.set(f"Image saved: {filename}")
+                    self.status_var.set(f"Image captured. Analyzing mood...")
+                    self.root.update()  # Force immediate UI update
                 
                 # Notify via JSON
                 print(json.dumps({"status": "image_captured", "filepath": filepath}), flush=True)
@@ -203,21 +225,45 @@ class CameraApp:
                     # Update status with detected mood
                     if self.is_tkinter:
                         self.status_var.set(f"Detected mood: {mood} ({confidence:.2f})")
+                        self.root.update()  # Force immediate UI update
                     
-                    # Send mood detection result to the extension
-                    print(json.dumps({"mood": mood, "confidence": confidence, "filepath": filepath}), flush=True)
+                    # Map to proper agent mood (explicit agent type handling)
+                    agent_mood = mood
                     
-                    # Close the camera window immediately after successful detection
-                    self.root.after(500, self.on_closing)  # Small delay to ensure message is sent
+                    # Send mood detection result with required metadata
+                    print(json.dumps({
+                        "status": "mood_detected",  # Add a specific status
+                        "mood": agent_mood,
+                        "confidence": confidence, 
+                        "filepath": filepath,
+                        "autoAnalyze": True
+                    }), flush=True)
+                    
+                    # Wait a moment to ensure message is processed
+                    time.sleep(0.5)
+                    
+                    # Close the camera window
+                    self.on_closing()
                 else:
-                    # Use a random mood if detection failed
-                    print(json.dumps({"warning": "Mood detection failed, using random mood"}), flush=True)
-                    moods = ["happy", "frustrated", "exhausted", "sad", "angry"]
-                    selected_mood = random.choice(moods)
-                    print(json.dumps({"mood": selected_mood, "confidence": 0.7, "filepath": filepath}), flush=True)
+                    # Fallback to a valid agent mood if detection failed
+                    fallback_moods = ["happy", "sad", "angry"]
+                    agent_mood = random.choice(fallback_moods)
                     
-                    # Close the camera window after using fallback mood
-                    self.root.after(500, self.on_closing)
+                    # Send the fallback mood
+                    print(json.dumps({
+                        "status": "mood_detected",
+                        "mood": agent_mood,
+                        "confidence": 0.7, 
+                        "filepath": filepath,
+                        "autoAnalyze": True,
+                        "fallback": True
+                    }), flush=True)
+                    
+                    # Wait a moment to ensure message is processed
+                    time.sleep(0.5)
+                    
+                    # Close the camera window
+                    self.on_closing()
                     
             else:
                 error_msg = "Failed to capture image"
@@ -336,8 +382,6 @@ class CameraApp:
     
     def run_opencv_loop(self):
         """Run camera loop for OpenCV window mode"""
-        last_mood_time = 0
-        
         while self.camera_active:
             try:
                 ret, frame = self.camera.read()
@@ -360,6 +404,7 @@ class CameraApp:
                     break
                 elif key == 32:  # SPACE key
                     self.capture_image()
+                    # No need to break here as capture_image will call on_closing when done
             except Exception as e:
                 print(json.dumps({"error": f"OpenCV error: {str(e)}"}), flush=True)
                 break
