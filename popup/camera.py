@@ -205,13 +205,19 @@ class CameraApp:
                         self.status_var.set(f"Detected mood: {mood} ({confidence:.2f})")
                     
                     # Send mood detection result to the extension
-                    print(json.dumps({"mood": mood, "confidence": confidence}), flush=True)
+                    print(json.dumps({"mood": mood, "confidence": confidence, "filepath": filepath}), flush=True)
+                    
+                    # Close the camera window immediately after successful detection
+                    self.root.after(500, self.on_closing)  # Small delay to ensure message is sent
                 else:
                     # Use a random mood if detection failed
                     print(json.dumps({"warning": "Mood detection failed, using random mood"}), flush=True)
                     moods = ["happy", "frustrated", "exhausted", "sad", "angry"]
                     selected_mood = random.choice(moods)
-                    print(json.dumps({"mood": selected_mood, "confidence": 0.7}), flush=True)
+                    print(json.dumps({"mood": selected_mood, "confidence": 0.7, "filepath": filepath}), flush=True)
+                    
+                    # Close the camera window after using fallback mood
+                    self.root.after(500, self.on_closing)
                     
             else:
                 error_msg = "Failed to capture image"
