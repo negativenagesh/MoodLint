@@ -313,9 +313,6 @@ function createMoodlintPanel(context: vscode.ExtensionContext) {
     console.log('[Extension] MoodLint panel creation complete');
 }
 
-/**
- * Process mood data from Python
- */
 function processMoodFromPython(mood: string, confidence: number) {
     currentMood = mood;
     moodConfidence = confidence;
@@ -327,6 +324,14 @@ function processMoodFromPython(mood: string, confidence: number) {
             mood: mood,
             confidence: confidence
         });
+        
+        // If confidence is high enough, enable analysis button
+        if (confidence >= 0.6) {
+            moodlintPanel.webview.postMessage({
+                command: 'enableAnalysis',
+                mood: mood
+            });
+        }
     } else {
         console.error('[Extension] moodlintPanel undefined, cannot send moodDetected');
     }
