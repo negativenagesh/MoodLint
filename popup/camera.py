@@ -4,6 +4,8 @@ import json
 import os
 import time
 import random
+import datetime
+import subprocess
 
 try:
     import tkinter as tk
@@ -21,6 +23,22 @@ print(json.dumps({"status": "starting", "gui": "initializing"}), flush=True)
 
 class CameraApp:
     def __init__(self, root=None, headless=False):
+        # Create images directory if it doesn't exist
+        self.image_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "images")
+        os.makedirs(self.image_dir, exist_ok=True)
+        
+        # Path to the inference script
+        self.inference_script = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
+                                          "model", "inference.py")
+        
+        # Model path - using the specified model_epoch_40.pth at project root
+        self.model_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                     "model_epoch_40.pth")
+        
+        # Check model exists
+        if not os.path.exists(self.model_path):
+            print(json.dumps({"warning": f"Model file not found at {self.model_path}"}), flush=True)
+        
         if headless:
             self.setup_headless()
         else:
@@ -80,6 +98,9 @@ class CameraApp:
         self.camera_button = ttk.Button(button_frame, text="Start Camera", command=self.toggle_camera)
         self.camera_button.pack(side=tk.LEFT, padx=5)
         
+        self.capture_button = ttk.Button(button_frame, text="Capture Image", command=self.capture_image, state=tk.DISABLED)
+        self.capture_button.pack(side=tk.LEFT, padx=5)
+        
         ttk.Button(button_frame, text="Close", command=self.on_closing).pack(side=tk.LEFT, padx=5)
         
         # Camera variables
@@ -112,6 +133,98 @@ class CameraApp:
         # Start camera automatically
         self.start_camera()
     
+    def detect_mood(self, image_path):
+        """Run the mood detection model on the captured image"""
+        try:
+            # Set status
+            if self.is_tkinter:
+                self.status_var.set("Analyzing mood...")
+                self.root.update()
+            
+            # Run the inference script as a subprocess
+            process = subprocess.Popen(
+                [sys.executable, self.inference_script, image_path, self.model_path],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            
+            # Get output
+            stdout, stderr = process.communicate()
+            
+            if stderr:
+                print(json.dumps({"error": f"Inference error: {stderr.strip()}"}), flush=True)
+                return None, 0.0
+            
+            # Parse JSON result
+            try:
+                result = json.loads(stdout.strip())
+                if "error" in result:
+                    print(json.dumps({"error": result["error"]}), flush=True)
+                    return None, 0.0
+                
+                return result.get("mood"), result.get("confidence", 0.0)
+            except json.JSONDecodeError:
+                print(json.dumps({"error": f"Invalid JSON from inference: {stdout}"}), flush=True)
+                return None, 0.0
+                
+        except Exception as e:
+            print(json.dumps({"error": f"Error detecting mood: {str(e)}"}), flush=True)
+            return None, 0.0
+    
+    def capture_image(self):
+        """Capture and save the current camera frame"""
+        if not self.camera_active:
+            return
+            
+        try:
+            ret, frame = self.camera.read()
+            
+            if ret:
+                # Generate a filename with timestamp
+                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"mood_capture_{timestamp}.jpg"
+                filepath = os.path.join(self.image_dir, filename)
+                
+                # Save the image
+                cv2.imwrite(filepath, frame)
+                
+                # Update status
+                if self.is_tkinter:
+                    self.status_var.set(f"Image saved: {filename}")
+                
+                # Notify via JSON
+                print(json.dumps({"status": "image_captured", "filepath": filepath}), flush=True)
+                
+                # Detect mood from the captured image
+                mood, confidence = self.detect_mood(filepath)
+                
+                if mood:
+                    # Update status with detected mood
+                    if self.is_tkinter:
+                        self.status_var.set(f"Detected mood: {mood} ({confidence:.2f})")
+                    
+                    # Send mood detection result to the extension
+                    print(json.dumps({"mood": mood, "confidence": confidence}), flush=True)
+                else:
+                    # Use a random mood if detection failed
+                    print(json.dumps({"warning": "Mood detection failed, using random mood"}), flush=True)
+                    moods = ["happy", "frustrated", "exhausted", "sad", "angry"]
+                    selected_mood = random.choice(moods)
+                    print(json.dumps({"mood": selected_mood, "confidence": 0.7}), flush=True)
+                    
+            else:
+                error_msg = "Failed to capture image"
+                if self.is_tkinter:
+                    self.status_var.set(error_msg)
+                print(json.dumps({"error": error_msg}), flush=True)
+                
+        except Exception as e:
+            error_msg = f"Error capturing image: {str(e)}"
+            if self.is_tkinter:
+                self.status_var.set(error_msg)
+            print(json.dumps({"error": error_msg}), flush=True)
+    
     def start_camera(self):
         if self.camera_active:
             return
@@ -136,6 +249,7 @@ class CameraApp:
             
             if self.is_tkinter:
                 self.camera_button.config(text="Stop Camera")
+                self.capture_button.config(state=tk.NORMAL)  # Enable capture button
                 self.status_var.set("Camera started")
                 self.update_frame()
             else:
@@ -169,6 +283,7 @@ class CameraApp:
         
         if self.is_tkinter:
             self.camera_button.config(text="Start Camera")
+            self.capture_button.config(state=tk.DISABLED)  # Disable capture button
             self.status_var.set("Camera stopped")
             
             # Clear canvas and add placeholder text
@@ -202,14 +317,6 @@ class CameraApp:
                 self.canvas.delete("all")
                 self.canvas.create_image(320, 240, image=self.current_frame, anchor=tk.CENTER)
                 
-                # Send mock detection data more frequently (every 2 seconds) with higher confidence
-                if time.time() % 2 < 0.1:  # Approximately every 2 seconds
-                    # Choose one of the five moods randomly
-                    moods = ["happy", "frustrated", "exhausted", "sad", "angry"]
-                    selected_mood = random.choice(moods)
-                    # Always send high confidence (0.9) to ensure button enables
-                    print(json.dumps({"mood": selected_mood, "confidence": 0.9}), flush=True)
-                
                 # Schedule next update
                 self.after_id = self.root.after(33, self.update_frame)  # ~30 FPS
             else:
@@ -234,23 +341,19 @@ class CameraApp:
                     break
                     
                 # Display status information on frame
-                status_text = "MoodLint Camera (Press ESC to exit)"
+                status_text = "MoodLint Camera (Press ESC to exit, SPACE to capture)"
                 cv2.putText(frame, status_text, (10, 30), 
                              cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
                 
                 # Display the resulting frame
                 cv2.imshow(self.window_name, frame)
                 
-                # Send mock detection data approximately every 5 seconds
-                current_time = time.time()
-                if current_time - last_mood_time >= 5:
-                    print(json.dumps({"mood": "focused", "confidence": 0.85}), flush=True)
-                    last_mood_time = current_time
-                
-                # Check for key press (ESC = exit)
+                # Check for key press (ESC = exit, SPACE = capture image)
                 key = cv2.waitKey(30)
                 if key == 27:  # ESC key
                     break
+                elif key == 32:  # SPACE key
+                    self.capture_image()
             except Exception as e:
                 print(json.dumps({"error": f"OpenCV error: {str(e)}"}), flush=True)
                 break
