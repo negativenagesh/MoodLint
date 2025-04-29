@@ -43,7 +43,7 @@ function startPythonCameraApp(context: vscode.ExtensionContext): Promise<void> {
             return;
         }
 
-        const pythonPath = 'python3'; // or 'python' on some systems
+        const pythonPath = '/home/subrahmanya/projects/MoodLint/.venv/bin/python';
         const scriptPath = path.join(context.extensionPath, 'popup', 'camera.py');
         const sessionId = Date.now().toString();
 
