@@ -5,10 +5,36 @@ import tkinter as tk
 from tkinter import ttk, scrolledtext
 import threading
 import traceback
+import subprocess
+
+# Check dependencies first before importing agent modules
+def check_dependencies():
+    missing_deps = []
+    required_deps = ["langchain_core", "langchain", "langgraph", "google.generativeai"]
+    
+    for dep in required_deps:
+        try:
+            if "." in dep:
+                module_name, submodule = dep.split(".", 1)
+                __import__(module_name)
+            else:
+                __import__(dep)
+        except ImportError:
+            pkg_name = "google-generativeai" if dep == "google.generativeai" else dep
+            missing_deps.append(pkg_name)
+    
+    return missing_deps
 
 # Add parent directory to path so we can import from agents package
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from agents.agent_manager import AgentManager
+
+# Try to import agent manager, but handle import errors gracefully
+try:
+    from agents.agent_manager import AgentManager
+    AGENT_IMPORT_SUCCESS = True
+except ImportError as e:
+    print(json.dumps({"error": f"Import error: {str(e)}"}), flush=True)
+    AGENT_IMPORT_SUCCESS = False
 
 class AgentDebugApp:
     def __init__(self, root, mood, filename=None, code=None, query=None):
@@ -24,10 +50,36 @@ class AgentDebugApp:
         # Configure the window
         self.setup_window()
         
-        # Start analysis in a separate thread to keep UI responsive
-        if self.code and self.filename:
+        # Check if dependencies are available
+        missing_deps = check_dependencies()
+        if missing_deps:
+            install_cmd = f"pip install {' '.join(missing_deps)}"
+            self.update_response_text(
+                f"⚠️ Missing dependencies detected: {', '.join(missing_deps)}\n\n"
+                f"Please install the required packages with:\n\n"
+                f"{install_cmd}\n\n"
+                f"Then restart VS Code and try again."
+            )
+            print(json.dumps({
+                "status": "missing_dependencies",
+                "missing": missing_deps,
+                "install_command": install_cmd
+            }), flush=True)
+            return
+            
+        # Start analysis if we have all dependencies and code
+        if AGENT_IMPORT_SUCCESS and self.code and self.filename:
             # Start analysis immediately
             self.start_analysis()
+        elif not AGENT_IMPORT_SUCCESS:
+            # Display error about agent import
+            self.update_response_text(
+                f"⚠️ Error loading MoodLint Agent system\n\n"
+                f"There was an error importing the agent system components. "
+                f"This may be due to missing dependencies.\n\n"
+                f"Please make sure you have installed all required packages:\n"
+                f"pip install langchain langchain_core langgraph google-generativeai"
+            )
         else:
             # Display welcome message if no code provided
             self.update_response_text(
