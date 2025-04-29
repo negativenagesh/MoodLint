@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as childProcess from 'child_process';
 import * as fs from 'fs';
+import * as os from 'os';
 import { getWebviewContent } from './webviewContent';
 import { AgentInterface } from './agentInterface';
 import { createDebugResultsPopup } from './debugPopup';
@@ -103,7 +104,13 @@ function startPythonCameraApp(context: vscode.ExtensionContext): Promise<void> {
                             
                             // Check for mood data
                             if (result.mood && result.confidence) {
-                                processMoodFromPython(result.mood, result.confidence);
+                                // Pass the autoAnalyze flag to processMoodFromPython
+                                processMoodFromPython(
+                                    result.mood, 
+                                    result.confidence, 
+                                    result.filepath,
+                                    result.autoAnalyze === true // Explicitly convert to boolean
+                                );
                             }
                             
                             // Check for errors
@@ -202,9 +209,6 @@ function stopPythonCameraApp() {
     }
 }
 
-/**
- * Creates and manages the MoodLint webview panel
- */
 /**
  * Creates and manages the MoodLint webview panel
  */
@@ -313,7 +317,8 @@ function createMoodlintPanel(context: vscode.ExtensionContext) {
     console.log('[Extension] MoodLint panel creation complete');
 }
 
-function processMoodFromPython(mood: string, confidence: number) {
+function processMoodFromPython(mood: string, confidence: number, filepath?: string, autoAnalyze?: boolean) {
+    console.log(`[Extension] Processing mood: ${mood} (${confidence}) from image: ${filepath || 'unknown'}, autoAnalyze: ${autoAnalyze}`);
     currentMood = mood;
     moodConfidence = confidence;
 
@@ -322,7 +327,8 @@ function processMoodFromPython(mood: string, confidence: number) {
         moodlintPanel.webview.postMessage({
             command: 'moodDetected',
             mood: mood,
-            confidence: confidence
+            confidence: confidence,
+            filepath: filepath
         });
         
         // If confidence is high enough, enable analysis button
@@ -331,6 +337,39 @@ function processMoodFromPython(mood: string, confidence: number) {
                 command: 'enableAnalysis',
                 mood: mood
             });
+        }
+        
+        // If autoAnalyze flag is explicitly set to true, immediately launch analysis
+        if (autoAnalyze === true) {
+            console.log('[Extension] Auto-analyzing based on camera signal');
+            // Get the active editor and analyze the code
+            const editor = vscode.window.activeTextEditor;
+            if (editor) {
+                analyzeWithMood(mood, confidence, {
+                    filepath: editor.document.fileName,
+                    code: editor.document.getText()
+                });
+            } else {
+                // No editor active, analyze without specific code
+                analyzeWithMood(mood, confidence, {});
+            }
+            return; // Skip checking user settings since we have an explicit signal
+        }
+        
+        // Option to automatically launch analysis based on user settings
+        const autoAnalyzeFromSettings = vscode.workspace.getConfiguration('moodlint').get('autoAnalyzeAfterDetection', false);
+        if (autoAnalyzeFromSettings) {
+            // Get the active editor and analyze the code
+            const editor = vscode.window.activeTextEditor;
+            if (editor) {
+                analyzeWithMood(mood, confidence, {
+                    filepath: editor.document.fileName,
+                    code: editor.document.getText()
+                });
+            } else {
+                // No editor active, analyze without specific code
+                analyzeWithMood(mood, confidence, {});
+            }
         }
     } else {
         console.error('[Extension] moodlintPanel undefined, cannot send moodDetected');
@@ -397,11 +436,26 @@ async function analyzeWithMood(mood: string, confidence: number, options: any) {
     }
 
     try {
-        // Launch the Python agent popup directly without requiring an active editor
+        // Get the active editor
+        const editor = vscode.window.activeTextEditor;
+        let filename = options.filepath || (editor ? editor.document.fileName : '');
+        let code = options.code || (editor ? editor.document.getText() : '');
+        const query = options.query || '';
+
+        // If we have code but no filename, create a temporary file
+        let tempFilePath = '';
+        if (code && !filename) {
+            // Create temp file
+            tempFilePath = path.join(os.tmpdir(), `moodlint_${Date.now()}.txt`);
+            fs.writeFileSync(tempFilePath, code);
+            filename = tempFilePath;
+        }
+
+        // Launch the Python agent popup
         const pythonPath = 'python3'; // or 'python' on some systems
         const scriptPath = path.join(context.extensionPath, 'popup', 'agent_popup.py');
         
-        console.log(`[Extension] Starting agent popup: ${scriptPath}`);
+        console.log(`[Extension] Starting agent popup for mood: ${mood}, file: ${filename || 'none'}`);
         
         // Make sure the script is executable
         try {
@@ -410,12 +464,21 @@ async function analyzeWithMood(mood: string, confidence: number, options: any) {
             // Ignore chmod errors on Windows
         }
         
-        // Launch the agent popup process - now just with mood and options
-        const agentProcess = childProcess.spawn(pythonPath, [
-            scriptPath, 
-            mood,
-            options.query || ''
-        ], {
+        // Build command line arguments based on what's available
+        const args = [scriptPath, mood];
+        
+        // Add filename if available
+        if (filename) {
+            args.push(filename);
+        }
+        
+        // Add query if available
+        if (query) {
+            args.push(query);
+        }
+        
+        // Launch the agent popup process
+        const agentProcess = childProcess.spawn(pythonPath, args, {
             env: { 
                 ...process.env, 
                 DISPLAY: process.env.DISPLAY || ':0',
@@ -491,6 +554,15 @@ async function analyzeWithMood(mood: string, confidence: number, options: any) {
         agentProcess.on('close', (code) => {
             console.log(`[Extension] Agent popup exited with code ${code}`);
             
+            // Clean up temp file if created
+            if (tempFilePath && fs.existsSync(tempFilePath)) {
+                try {
+                    fs.unlinkSync(tempFilePath);
+                } catch (err) {
+                    console.error(`[Extension] Error removing temp file: ${err}`);
+                }
+            }
+            
             // If the process failed to launch or exited with an error
             if (code !== 0) {
                 vscode.window.showErrorMessage(`Agent process exited with code ${code}`);
@@ -542,6 +614,11 @@ export function activate(extensionContext: vscode.ExtensionContext) {
             vscode.window.showWarningMessage('MoodLint agent system not fully installed. Some features may not work.');
         }
     });
+    
+    // Register MoodLint settings
+    vscode.workspace.getConfiguration('moodlint').update('autoAnalyzeAfterDetection', 
+        vscode.workspace.getConfiguration('moodlint').get('autoAnalyzeAfterDetection', false),
+        vscode.ConfigurationTarget.Global);
     
     const disposable = vscode.commands.registerCommand('moodlint.helloWorld', () => {
         createMoodlintPanel(context);

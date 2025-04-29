@@ -4,20 +4,28 @@ import json
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torchvision import transforms
+from torchvision import transforms, models
 from PIL import Image
 
 # Define the same model architecture used in training
 class ExpressionRecognitionModel(nn.Module):
-    def __init__(self, num_classes=3):
+    def __init__(self, num_classes=5):
         super(ExpressionRecognitionModel, self).__init__()
-        # Load pre-trained ResNet50
-        self.backbone = torch.hub.load('pytorch/vision:v0.10.0', 'resnet50', pretrained=False)
+        # Load pre-trained ResNet50 backbone
+        self.backbone = models.resnet50()
 
         # Replace the final fully connected layer
         num_ftrs = self.backbone.fc.in_features
         self.backbone.fc = nn.Identity()
 
+        # Attention mechanism for focusing on important facial features
+        self.attention = nn.Sequential(
+            nn.Conv2d(2048, 512, kernel_size=1),
+            nn.ReLU(),
+            nn.Conv2d(512, 1, kernel_size=1),
+            nn.Sigmoid()
+        )
+        
         # Custom classifier with dropout and batch normalization
         self.classifier = nn.Sequential(
             nn.Linear(num_ftrs, 1024),
@@ -30,15 +38,7 @@ class ExpressionRecognitionModel(nn.Module):
             nn.Dropout(0.4),
             nn.Linear(512, num_classes)
         )
-
-        # Attention mechanism for focusing on important facial features
-        self.attention = nn.Sequential(
-            nn.Conv2d(2048, 512, kernel_size=1),
-            nn.ReLU(),
-            nn.Conv2d(512, 1, kernel_size=1),
-            nn.Sigmoid()
-        )
-
+    
     def forward(self, x):
         # Extract features from the backbone
         x = self.backbone.conv1(x)
@@ -66,19 +66,20 @@ class ExpressionRecognitionModel(nn.Module):
 def preprocess_image(image_path):
     """Preprocess the input image for model inference"""
     try:
-        # Load and preprocess the image
-        image = Image.open(image_path).convert('RGB')
-        
-        # Apply the same preprocessing as in validation/testing
-        preprocess = transforms.Compose([
+        # Define transforms - match the preprocessing used in training
+        transform = transforms.Compose([
             transforms.Resize((224, 224)),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ])
         
-        # Apply transformations and add batch dimension
-        image_tensor = preprocess(image).unsqueeze(0)
-        return image_tensor
+        # Load and transform image
+        with Image.open(image_path) as img:
+            img = img.convert('RGB')
+            input_tensor = transform(img)
+            # Add batch dimension
+            input_tensor = input_tensor.unsqueeze(0)
+            return input_tensor
     except Exception as e:
         print(json.dumps({"error": f"Error preprocessing image: {str(e)}"}), flush=True)
         return None
@@ -86,51 +87,47 @@ def preprocess_image(image_path):
 def load_model(model_path):
     """Load the model from the checkpoint"""
     try:
-        # Create the model
-        model = ExpressionRecognitionModel(num_classes=3)
+        # Set device
+        device = torch.device("cpu")  # For compatibility, use CPU
         
-        # Load the checkpoint
-        checkpoint = torch.load(model_path, map_location=torch.device('cpu'))
+        # Initialize model
+        model = ExpressionRecognitionModel(num_classes=5)
         
-        # Extract state dict based on checkpoint format
-        if 'model_state_dict' in checkpoint:
+        # Load weights
+        checkpoint = torch.load(model_path, map_location=device)
+        
+        # Handle different checkpoint formats
+        if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
             model.load_state_dict(checkpoint['model_state_dict'])
         else:
             model.load_state_dict(checkpoint)
-            
-        # Set model to evaluation mode
+        
+        # Set to evaluation mode
         model.eval()
-        return model
+        
+        return model, device
     except Exception as e:
         print(json.dumps({"error": f"Error loading model: {str(e)}"}), flush=True)
-        return None
+        return None, None
 
-def predict_mood(model, image_tensor):
+def predict_mood(model, image_tensor, device):
     """Run the model to predict mood from image"""
     try:
+        # Transfer tensor to device
+        image_tensor = image_tensor.to(device)
+        
         # Run inference
         with torch.no_grad():
             outputs = model(image_tensor)
             probabilities = F.softmax(outputs, dim=1)
             confidence, predicted = torch.max(probabilities, 1)
             
-            # Map index to emotion label - match order from training
-            # Assuming the model was trained with ['angry', 'happy', 'sad']
-            emotion_labels = ['angry', 'happy', 'sad']
+            # Map index to emotion label - use correct labels from training
+            emotion_labels = ['Angry', 'Happy', 'Neutral', 'Sad', 'Surprise']
             predicted_emotion = emotion_labels[predicted.item()]
             
-            # Map the model's limited emotions to more extensive MoodLint set
-            mood_mapping = {
-                'angry': 'angry',
-                'happy': 'happy',
-                'sad': 'sad'
-            }
-            
-            # Note: You can expand this mapping if needed to match your UI
-            # For example: 'sad' could map to 'exhausted' based on your needs
-            
-            mood = mood_mapping.get(predicted_emotion, predicted_emotion)
-            return mood, confidence.item()
+            return predicted_emotion, confidence.item()
+    
     except Exception as e:
         print(json.dumps({"error": f"Error during prediction: {str(e)}"}), flush=True)
         return None, 0.0
@@ -163,12 +160,12 @@ def main():
             return
             
         # Load model
-        model = load_model(model_path)
+        model, device = load_model(model_path)
         if model is None:
             return
             
         # Make prediction
-        mood, confidence = predict_mood(model, image_tensor)
+        mood, confidence = predict_mood(model, image_tensor, device)
         if mood is None:
             return
             

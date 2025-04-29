@@ -1,145 +1,129 @@
-import tkinter as tk
-from tkinter import ttk, scrolledtext, filedialog, messagebox
-import json
 import sys
-import threading
-import time
 import os
-import asyncio
+import json
+import tkinter as tk
+from tkinter import ttk, scrolledtext
+import threading
 import traceback
 
-from dotenv import load_dotenv
-
-# Add parent directory to path for imports
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-# Import the debug_code function from the agent workflow
-from agents.workflow import debug_code
-
-# Ensure virtual environment is in path
-venv_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".venv", "lib", "python3.8", "site-packages")
-if os.path.exists(venv_path) and venv_path not in sys.path:
-    sys.path.insert(0, venv_path)
-    print(f"Added virtual environment path: {venv_path}")
+# Add parent directory to path so we can import from agents package
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from agents.agent_manager import AgentManager
 
 class AgentDebugApp:
-    def __init__(self, root, mood, query="", initial_file=None):
+    def __init__(self, root, mood, filename=None, code=None, query=None):
         self.root = root
-        self.mood = mood
+        self.mood = mood.lower()  # Ensure lowercase for mood normalization
+        self.filename = filename
+        self.code = code
         self.query = query
-        self.is_complete = False
-        self.code = ""
-        self.filename = ""
-        self.selected_files = []
-        self.initial_file = initial_file  # Store the initial file path
         
-        # Set up the UI
-        self.setup_ui()
+        # Setup API key, defaulting to environment variable
+        self.api_key = os.environ.get("GOOGLE_API_KEY")
         
-        # If initial file was provided, load it
-        if self.initial_file and os.path.exists(self.initial_file):
-            self.selected_files.append(self.initial_file)
-            self.file_list.insert(tk.END, os.path.basename(self.initial_file))
-            # Select the file in the listbox
-            self.file_list.selection_set(0)
-    
-    def setup_ui(self):
-        self.root.title(f"MoodLint Agent - {self.mood.capitalize()} Mode")
-        self.root.geometry("800x700")
-        self.root.minsize(700, 600)
+        # Configure the window
+        self.setup_window()
         
-        # Make window appear on top
-        self.root.attributes('-topmost', True)
-        self.root.update()
-        self.root.attributes('-topmost', False)
+        # Start analysis in a separate thread to keep UI responsive
+        if self.code and self.filename:
+            # Start analysis immediately
+            self.start_analysis()
+        else:
+            # Display welcome message if no code provided
+            self.update_response_text(
+                f"MoodLint Agent initialized with {self.mood} mood.\n\n"
+                f"No code file was provided for analysis. Please open a code file and try again."
+            )
         
-        # Center window on screen
+    def setup_window(self):
+        """Setup the UI elements"""
+        self.root.title(f"MoodLint Agent - {self.mood.capitalize()} Mood")
+        
+        # Set window size and position
+        window_width = 800
+        window_height = 600
         screen_width = self.root.winfo_screenwidth()
         screen_height = self.root.winfo_screenheight()
-        x = (screen_width - 800) // 2
-        y = (screen_height - 700) // 2
-        self.root.geometry(f"+{x}+{y}")
+        x = (screen_width - window_width) // 2
+        y = (screen_height - window_height) // 2
+        self.root.geometry(f"{window_width}x{window_height}+{x}+{y}")
         
-        # Configure style
-        style = ttk.Style()
-        style.configure('Header.TLabel', font=('Arial', 16, 'bold'))
-        style.configure('Mood.TLabel', font=('Arial', 12), foreground=self.get_mood_color())
+        # Make window non-resizable
+        self.root.resizable(False, False)
         
-        # Create main container
-        main_frame = ttk.Frame(self.root, padding=20)
+        # Set mood-specific color for header
+        mood_color = self.get_mood_color()
+        
+        # Create main frame with padding
+        main_frame = ttk.Frame(self.root, padding="20")
         main_frame.pack(fill=tk.BOTH, expand=True)
         
-        # Create header
-        header_frame = ttk.Frame(main_frame)
-        header_frame.pack(fill=tk.X, pady=(0, 15))
+        # Header with mood indication
+        header_frame = tk.Frame(main_frame, bg=mood_color, padx=10, pady=10)
+        header_frame.pack(fill=tk.X)
         
-        ttk.Label(header_frame, text="MoodLint Debugging Assistant", style='Header.TLabel').pack(side=tk.LEFT)
-        self.mood_label = ttk.Label(header_frame, text=f"Mood: {self.mood.capitalize()}", style='Mood.TLabel')
-        self.mood_label.pack(side=tk.RIGHT)
+        tk.Label(
+            header_frame, 
+            text=f"MoodLint Agent: {self.mood.capitalize()} Mood", 
+            font=("Arial", 16, "bold"),
+            bg=mood_color,
+            fg="white"
+        ).pack(side=tk.LEFT)
         
-        # File selection section
-        file_select_frame = ttk.LabelFrame(main_frame, text="Select Files")
-        file_select_frame.pack(fill=tk.X, pady=(0, 10))
+        # Status label
+        self.status_var = tk.StringVar(value="Ready")
+        status_frame = ttk.Frame(main_frame)
+        status_frame.pack(fill=tk.X, pady=(10, 0))
+        ttk.Label(status_frame, text="Status:").pack(side=tk.LEFT)
+        ttk.Label(status_frame, textvariable=self.status_var).pack(side=tk.LEFT, padx=(5, 0))
         
-        file_buttons_frame = ttk.Frame(file_select_frame)
-        file_buttons_frame.pack(fill=tk.X, pady=5, padx=5)
+        # Create the content frame
+        content_frame = ttk.Frame(main_frame)
+        content_frame.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
         
-        ttk.Button(file_buttons_frame, text="Add Files", command=self.add_files).pack(side=tk.LEFT, padx=5)
-        ttk.Button(file_buttons_frame, text="Clear Selection", command=self.clear_files).pack(side=tk.LEFT, padx=5)
+        # Code info frame (if applicable)
+        if self.filename:
+            info_frame = ttk.Frame(content_frame)
+            info_frame.pack(fill=tk.X, pady=(0, 10))
+            ttk.Label(info_frame, text=f"File: {self.filename}").pack(anchor=tk.W)
+            if self.query:
+                ttk.Label(info_frame, text=f"Query: {self.query}").pack(anchor=tk.W)
         
-        # File list
-        self.file_list = tk.Listbox(file_select_frame, height=3)
-        self.file_list.pack(fill=tk.X, padx=5, pady=5)
+        # Response text area with custom styling
+        self.response_text = scrolledtext.ScrolledText(
+            content_frame, 
+            wrap=tk.WORD, 
+            font=("Consolas", 11),
+            background="#f8f8f8", 
+            padx=10,
+            pady=10
+        )
+        self.response_text.pack(fill=tk.BOTH, expand=True)
+        self.response_text.config(state=tk.DISABLED)  # Make it read-only initially
         
-        # Query section
-        query_frame = ttk.LabelFrame(main_frame, text="Query")
-        query_frame.pack(fill=tk.X, pady=(0, 10))
+        # Insert initial message
+        self.update_response_text(f"Preparing to analyze with {self.mood} mood in mind...\n")
         
-        query_label = ttk.Label(query_frame, text="What would you like to know about this code?")
-        query_label.pack(anchor=tk.W, padx=5, pady=(5, 0))
-        
-        self.query_input = scrolledtext.ScrolledText(query_frame, wrap=tk.WORD, height=3)
-        self.query_input.pack(fill=tk.X, padx=5, pady=5)
-        if self.query:
-            self.query_input.insert(tk.END, self.query)
-        
-        # Analyze button
-        analyze_frame = ttk.Frame(main_frame)
-        analyze_frame.pack(fill=tk.X)
-        
-        self.analyze_btn = ttk.Button(analyze_frame, text="Analyze Selected Files", command=self.run_analysis)
-        self.analyze_btn.pack(anchor=tk.CENTER, pady=5)
-        
-        # Create progress frame
-        self.progress_frame = ttk.Frame(main_frame)
-        self.progress_frame.pack(fill=tk.X, pady=10)
-        
-        self.progress_var = tk.StringVar(value="Ready to analyze")
-        self.progress_label = ttk.Label(self.progress_frame, textvariable=self.progress_var)
-        self.progress_label.pack(side=tk.LEFT)
-        
-        self.progress_dots = tk.StringVar(value="")
-        self.progress_dots_label = ttk.Label(self.progress_frame, textvariable=self.progress_dots)
-        self.progress_dots_label.pack(side=tk.LEFT)
-        
-        # Create result text area
-        result_frame = ttk.LabelFrame(main_frame, text="Analysis Results")
-        result_frame.pack(fill=tk.BOTH, expand=True, pady=10)
-        
-        self.result_text = scrolledtext.ScrolledText(result_frame, wrap=tk.WORD, height=20)
-        self.result_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        self.result_text.config(state=tk.DISABLED)
-        
-        # Create buttons
+        # Bottom button frame
         button_frame = ttk.Frame(main_frame)
         button_frame.pack(fill=tk.X, pady=(10, 0))
         
-        self.close_button = ttk.Button(button_frame, text="Close", command=self.on_close)
-        self.close_button.pack(side=tk.RIGHT)
+        # Add copy button
+        self.copy_button = ttk.Button(
+            button_frame, 
+            text="Copy to Clipboard", 
+            command=self.copy_to_clipboard,
+            state=tk.DISABLED
+        )
+        self.copy_button.pack(side=tk.LEFT)
         
-        # Set up close handler
-        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
-
+        # Add close button
+        ttk.Button(
+            button_frame, 
+            text="Close", 
+            command=self.close_app
+        ).pack(side=tk.RIGHT)
+    
     def get_mood_color(self):
         """Return color for the current mood"""
         mood_colors = {
@@ -151,426 +135,135 @@ class AgentDebugApp:
         }
         return mood_colors.get(self.mood.lower(), "#000000")
     
-    def add_files(self):
-        """Add files to the list"""
-        filepaths = filedialog.askopenfilenames(
-            title="Select Files",
-            filetypes=[
-                ("Python Files", "*.py"),
-                ("JavaScript Files", "*.js"),
-                ("TypeScript Files", "*.ts"),
-                ("HTML Files", "*.html"),
-                ("CSS Files", "*.css"),
-                ("All Files", "*.*")
-            ]
-        )
+    def update_response_text(self, text):
+        """Update the response text area with new content"""
+        self.response_text.config(state=tk.NORMAL)
+        self.response_text.delete(1.0, tk.END)
+        self.response_text.insert(tk.END, text)
+        self.response_text.config(state=tk.DISABLED)
+        self.response_text.see(1.0)  # Scroll to top
         
-        if not filepaths:
-            return
-            
-        for filepath in filepaths:
-            if filepath not in self.selected_files:
-                self.selected_files.append(filepath)
-                self.file_list.insert(tk.END, os.path.basename(filepath))
+        # Enable copy button if we have a response
+        if text.strip():
+            self.copy_button.config(state=tk.NORMAL)
     
-    def clear_files(self):
-        """Clear all files from the list"""
-        self.selected_files = []
-        self.file_list.delete(0, tk.END)
+    def copy_to_clipboard(self):
+        """Copy the response to clipboard"""
+        self.root.clipboard_clear()
+        self.root.clipboard_append(self.response_text.get(1.0, tk.END))
+        self.status_var.set("Copied to clipboard!")
     
-    def update_progress(self):
-        """Update the progress animation"""
-        if not self.is_complete:
-            dots = self.progress_dots.get()
-            
-            if len(dots) >= 3:
-                dots = ""
-            else:
-                dots += "."
-                
-            self.progress_dots.set(dots)
-            self.root.after(500, self.update_progress)
+    def close_app(self):
+        """Close the application"""
+        print(json.dumps({"status": "closed"}), flush=True)
+        self.root.destroy()
     
-    def run_analysis(self):
-        """Run analysis on selected files"""
-        # Check if files are selected
-        if not self.selected_files:
-            messagebox.showwarning("No Files", "Please select at least one file to analyze.")
-            return
+    def start_analysis(self):
+        """Start code analysis in a separate thread"""
+        self.status_var.set("Analyzing code...")
+        self.update_response_text("Analyzing your code with the mood-aware agent...\nPlease wait...")
         
-        # Get the selected index from the listbox
-        selected_idx = self.file_list.curselection()
-        if not selected_idx:
-            messagebox.showwarning("No Selection", "Please select a file from the list.")
-            return
-        
-        selected_idx = selected_idx[0]
-        file_path = self.selected_files[selected_idx]
-        self.filename = os.path.basename(file_path)
-        
-        # Read the selected file
+        # Start analysis in a separate thread
+        threading.Thread(target=self.perform_analysis, daemon=True).start()
+    
+    def perform_analysis(self):
+        """Perform the code analysis and update UI with results"""
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                self.code = f.read()
-            print(f"Successfully read file: {file_path}, length: {len(self.code)}")
-        except Exception as e:
-            messagebox.showerror("Error", f"Could not read file: {str(e)}")
-            return
-        
-        # Get the query
-        self.query = self.query_input.get("1.0", tk.END).strip()
-        print(f"Query: '{self.query}'")
-        
-        # Check API key
-        if not os.environ.get("GOOGLE_API_KEY"):
-            api_key_error = "GOOGLE_API_KEY is not set in environment variables"
-            print(api_key_error)
-            messagebox.showerror("API Key Error", 
-                "Google API Key is not set. Please add it to your .env file or environment variables.")
-            return
-        
-        # Start analysis
-        self.is_complete = False
-        self.progress_var.set("Analyzing code...")
-        self.progress_dots.set("")
-        self.analyze_btn.config(state=tk.DISABLED)
-        self.update_progress()
-        
-        # Log analysis start
-        print(f"Starting analysis of {self.filename} with mood: {self.mood}")
-        
-        # Start agent processing in a separate thread
-        self.agent_thread = threading.Thread(target=self.run_agent_workflow)
-        self.agent_thread.daemon = True
-        self.agent_thread.start()
-    
-    def run_agent_workflow(self):
-        """Run the agent workflow in a background thread"""
-        try:
-            print(f"Starting agent workflow thread")
+            # Create agent manager
+            agent_manager = AgentManager(api_key=self.api_key)
             
-            # Create event loop for async function
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+            # Send message that analysis is starting
+            print(json.dumps({"status": "analyzing"}), flush=True)
             
-            # Ensure we're using the correct mood parameter
-            print(f"Calling debug_code with: filename={self.filename}, mood={self.mood}, code length={len(self.code)}")
-            
-            # Run debug_code function
-            result = loop.run_until_complete(debug_code(
+            # Get debugging results from appropriate mood agent
+            result = agent_manager.debug_code(
                 code=self.code,
                 filename=self.filename,
                 mood=self.mood,
-                query=self.query
+                user_query=self.query or ""
+            )
+            
+            # Update UI with response
+            if result["success"]:
+                self.root.after(0, lambda: self.status_var.set("Analysis complete"))
+                self.root.after(0, lambda: self.update_response_text(result["response"]))
+                
+                # Send success result back to extension
+                print(json.dumps({
+                    "status": "complete", 
+                    "result": result
+                }), flush=True)
+            else:
+                error_message = result.get("error", "Unknown error")
+                self.root.after(0, lambda: self.status_var.set(f"Error: {error_message}"))
+                self.root.after(0, lambda: self.update_response_text(result["response"]))
+                
+                # Send error result back to extension
+                print(json.dumps({
+                    "status": "error", 
+                    "message": error_message,
+                    "result": result
+                }), flush=True)
+                
+        except Exception as e:
+            error_message = str(e)
+            error_trace = traceback.format_exc()
+            self.root.after(0, lambda: self.status_var.set(f"System error occurred"))
+            self.root.after(0, lambda: self.update_response_text(
+                f"An error occurred while analyzing your code:\n\n{error_message}\n\n"
+                f"This might be due to a system issue or invalid input. "
+                f"Please check your code and try again."
             ))
             
-            print(f"Debug code completed, result: {result.keys() if isinstance(result, dict) else 'not a dict'}")
-            
-            # Check for raw Gemini response first
-            if isinstance(result, dict):
-                print(f"Result type: dict with keys {result.keys()}")
-                
-                # Check for raw Gemini response first - this is the most direct source
-                if "raw_response" in result and result["raw_response"]:
-                    print(f"Found raw_response in result, using as primary response")
-                    result["response"] = result["raw_response"]
-                    self.root.after(0, lambda: self.update_results(result))
-                    return
-                
-                # Direct extraction from Gemini API result
-                if "response" in result and result["response"]:
-                    response_length = len(result["response"]) if isinstance(result["response"], str) else "non-string"
-                    print(f"Found response directly in result, length: {response_length}")
-                    
-                    # Only check for fallback if response is too short or looks generic
-                    fallback_indicators = ["API connection", "wasn't able to generate", "check that your API key"]
-                    is_fallback = (isinstance(result["response"], str) and 
-                                   any(indicator in result["response"] for indicator in fallback_indicators))
-                    
-                    if not is_fallback:
-                        # Valid non-fallback response found
-                        self.root.after(0, lambda: self.update_results(result))
-                        return
-                    else:
-                        print("WARNING: Detected fallback response, attempting to find actual response")
-                        
-                        # If we have a nested result structure, look deeper
-                        if "result" in result and isinstance(result["result"], dict):
-                            print(f"Looking in nested result: {result['result'].keys()}")
-                            
-                            # Try to directly access Gemini response if it exists
-                            if "gemini_response" in result["result"]:
-                                print("Found gemini_response in nested result")
-                                result["response"] = result["result"]["gemini_response"]
-                                self.root.after(0, lambda: self.update_results(result))
-                                return
-                            elif "raw_response" in result["result"]:
-                                print("Found raw_response in nested result")
-                                result["response"] = result["result"]["raw_response"]
-                                self.root.after(0, lambda: self.update_results(result))
-                                return
-                
-                # Check for Gemini client-specific nested response format
-                if "output" in result and isinstance(result["output"], dict):
-                    if "response" in result["output"] and result["output"]["response"]:
-                        print(f"Found response in output property")
-                        result["response"] = result["output"]["response"]
-                        self.root.after(0, lambda: self.update_results(result))
-                        return
-                
-                # Look for nested response in result
-                if "result" in result and isinstance(result["result"], dict):
-                    nested = result["result"]
-                    print(f"Nested result keys: {nested.keys()}")
-                    
-                    if "response" in nested and nested["response"]:
-                        print(f"Found response in nested result")
-                        result["response"] = nested["response"]
-                        self.root.after(0, lambda: self.update_results(result))
-                        return
-                
-                # Check if we have a gemini_client_output property
-                if "gemini_client_output" in result:
-                    print("Found gemini_client_output in result")
-                    if isinstance(result["gemini_client_output"], str):
-                        result["response"] = result["gemini_client_output"]
-                        self.root.after(0, lambda: self.update_results(result))
-                        return
-                    elif isinstance(result["gemini_client_output"], dict) and "response" in result["gemini_client_output"]:
-                        result["response"] = result["gemini_client_output"]["response"]
-                        self.root.after(0, lambda: self.update_results(result))
-                        return
-            
-            # Create a more useful fallback response that includes the query
-            if isinstance(result, dict):
-                if "success" not in result:
-                    result["success"] = True
-                if "mood" not in result:
-                    result["mood"] = self.mood
-                
-                # Create a response if none exists, making it more relevant to the query
-                if "response" not in result or not result["response"]:
-                    query_context = f" about '{self.query}'" if self.query else ""
-                    result["response"] = (
-                        f"I analyzed your {self.filename} file from a {self.mood} perspective{query_context}.\n\n"
-                        "While I couldn't generate a detailed analysis, here are some general observations:\n\n"
-                        f"1. The file appears to be a {self.filename.split('.')[-1]} file that likely contains application logic\n"
-                        f"2. For files like this, common issues include error handling, performance optimization, and maintainability\n"
-                        f"3. Consider adding more comprehensive documentation and unit tests\n\n"
-                        f"To get a better analysis, please try again with a more specific query or check your API configuration."
-                    )
-            elif isinstance(result, str):
-                # Convert string response to proper structure
-                result = {
-                    "success": True,
-                    "mood": self.mood,
-                    "response": result,
-                    "query": self.query
-                }
-            else:
-                # Create fallback result with better information
-                result = {
-                    "success": True,
-                    "mood": self.mood,
-                    "response": (
-                        f"Analysis of {self.filename} from a {self.mood} perspective was completed, but the response format was unexpected.\n\n"
-                        "Please ensure your API key is correctly configured and has sufficient permissions."
-                    ),
-                    "result": {"mood": self.mood}
-                }
-            
-            # Update UI with results
-            self.root.after(0, lambda: self.update_results(result))
-            
-        except Exception as e:
-            error_traceback = traceback.format_exc()
-            print(f"Error during analysis: {str(e)}\n{error_traceback}")
-            error_message = f"Error during analysis: {str(e)}\n\nDetails: {error_traceback}"
-            self.root.after(0, lambda: self.update_error(error_message))
-    
-    def update_status(self, message):
-        """Update the status label"""
-        self.root.after(0, lambda: self.progress_var.set(message))
-    
-    def update_results(self, result):
-        """Update the results panel with agent output"""
-        self.is_complete = True
-        self.progress_var.set("Analysis complete")
-        self.progress_dots.set("")
-        self.analyze_btn.config(state=tk.NORMAL)
-        
-        # Enable text widget for editing
-        self.result_text.config(state=tk.NORMAL)
-        
-        # Clear any existing text
-        self.result_text.delete("1.0", tk.END)
-        
-        print(f"Result keys: {result.keys() if isinstance(result, dict) else 'not a dict'}")
-        
-        # Extract response text from result with priority to raw_response
-        response_text = None
-        
-        if isinstance(result, dict):
-            # First priority: Direct raw_response that looks substantial
-            if "raw_response" in result and result["raw_response"] and len(result["raw_response"]) > 100:
-                response_text = result["raw_response"]
-                print(f"Using direct raw_response of length: {len(response_text)}")
-            
-            # Second priority: Check nested raw_response
-            elif "result" in result and isinstance(result["result"], dict) and "raw_response" in result["result"] and len(result["result"]["raw_response"]) > 100:
-                response_text = result["result"]["raw_response"]
-                print(f"Using nested raw_response of length: {len(response_text)}")
-            
-            # Third priority: Check output.raw_response (from workflow DebugResponse)
-            elif "output" in result and isinstance(result["output"], dict) and "raw_response" in result["output"] and len(result["output"]["raw_response"]) > 100:
-                response_text = result["output"]["raw_response"]
-                print(f"Using output.raw_response of length: {len(response_text)}")
-            
-            # Fourth priority: Standard response if it's substantial and not a fallback
-            elif "response" in result and result["response"] and len(result["response"]) > 100:
-                # Check if it looks like a fallback
-                fallback_indicators = ["API connection", "wasn't able to generate", "check that your API key"]
-                is_fallback = any(indicator in result["response"] for indicator in fallback_indicators)
-                
-                if not is_fallback:
-                    response_text = result["response"]
-                    print(f"Using standard response of length: {len(response_text)}")
-            
-            # Fifth priority: Check nested response if it's substantial
-            elif "result" in result and isinstance(result["result"], dict) and "response" in result["result"] and len(result["result"]["response"]) > 100:
-                fallback_indicators = ["API connection", "wasn't able to generate", "check that your API key"]
-                is_fallback = any(indicator in result["result"]["response"] for indicator in fallback_indicators)
-                
-                if not is_fallback:
-                    response_text = result["result"]["response"]
-                    print(f"Using nested response of length: {len(response_text)}")
-            
-            # Sixth priority: Check output response (from workflow DebugResponse)
-            elif "output" in result and isinstance(result["output"], dict) and "response" in result["output"] and len(result["output"]["response"]) > 100:
-                fallback_indicators = ["API connection", "wasn't able to generate", "check that your API key"]
-                is_fallback = any(indicator in result["output"]["response"] for indicator in fallback_indicators)
-                
-                if not is_fallback:
-                    response_text = result["output"]["response"]
-                    print(f"Using output.response of length: {len(response_text)}")
-        
-        # If we found a valid response, display it
-        if response_text and len(response_text) > 100:
-            self.result_text.insert(tk.END, response_text)
-        else:
-            # Create a better fallback message if no valid response was found
-            standard_response = None
-            if isinstance(result, dict) and "response" in result and result["response"]:
-                standard_response = result["response"]
-            
-            # If we at least have a standard response that's not too short, use it
-            if standard_response and len(standard_response) > 50:
-                self.result_text.insert(tk.END, standard_response)
-            else:
-                # Final fallback if we have nothing useful
-                query_context = f" about '{self.query}'" if self.query else ""
-                fallback_message = (
-                    f"I've analyzed your {self.filename} file from a {self.mood} perspective{query_context}.\n\n"
-                    "I received a response from the Gemini API, but couldn't properly process it for display.\n\n"
-                    "Please check the console output for more details about the response that was received."
-                )
-                self.result_text.insert(tk.END, fallback_message)
-        
-        # Disable editing
-        self.result_text.config(state=tk.DISABLED)
-        
-        # Scroll to the top
-        self.result_text.see("1.0")
-        
-        # Send result back to VSCode via stdout
-        print(json.dumps({"status": "complete", "result": result}), flush=True)
-    
-    def update_error(self, error_message):
-        """Display an error in the results panel"""
-        self.is_complete = True
-        self.progress_var.set("Analysis failed")
-        self.progress_dots.set("")
-        self.analyze_btn.config(state=tk.NORMAL)
-        
-        # Enable text widget for editing
-        self.result_text.config(state=tk.NORMAL)
-        
-        # Clear any existing text
-        self.result_text.delete("1.0", tk.END)
-        
-        # Insert the error message
-        self.result_text.insert(tk.END, error_message)
-        
-        # Disable editing
-        self.result_text.config(state=tk.DISABLED)
-        
-        # Send error back to VSCode via stdout
-        print(json.dumps({"status": "error", "message": error_message}), flush=True)
-    
-    def on_close(self):
-        """Handle window close"""
-        if not self.is_complete:
-            print(json.dumps({"status": "canceled"}), flush=True)
-        self.root.destroy()
-        sys.exit(0)
+            # Send error back to extension
+            print(json.dumps({
+                "status": "error", 
+                "message": error_message,
+                "traceback": error_trace
+            }), flush=True)
 
 def main():
-    """Main function to parse arguments and start the application"""
-    load_dotenv()
-    
-    # Check if API key is available and print it (obscured)
-    api_key = os.environ.get("GOOGLE_API_KEY", "")
-    if api_key:
-        print(f"GOOGLE_API_KEY found, starts with {api_key[:4]}...")
-    else:
-        print(json.dumps({
-            "status": "error", 
-            "message": "GOOGLE_API_KEY environment variable is not set. Please set it or add it to .env file."
-        }), flush=True)
-        sys.exit(1)
-
-    # Parse command line arguments
+    # Parse arguments
     if len(sys.argv) < 2:
-        print(json.dumps({
-            "status": "error", 
-            "message": "Usage: agent_popup.py <mood> [file_path] [query]"
-        }), flush=True)
-        sys.exit(1)
+        print(json.dumps({"error": "Missing mood argument"}), flush=True)
+        return
     
-    # First argument is always the mood
+    # Get mood from arguments
     mood = sys.argv[1]
     
-    # Optional file path and query
-    file_path = None
-    query = ""
+    # Optional filename, code, and query
+    filename = sys.argv[2] if len(sys.argv) > 2 else None
+    query = sys.argv[3] if len(sys.argv) > 3 else None
     
-    if len(sys.argv) > 2:
-        # Second argument could be a file path
-        potential_file = sys.argv[2]
-        if os.path.exists(potential_file):
-            file_path = potential_file
-            # If there's a third argument, it's the query
-            if len(sys.argv) > 3:
-                query = sys.argv[3]
-        else:
-            # If second argument isn't a file, treat it as a query
-            query = potential_file
+    # If filename is provided, load code from file
+    code = None
+    if filename and os.path.exists(filename):
+        try:
+            with open(filename, 'r') as file:
+                code = file.read()
+        except Exception as e:
+            print(json.dumps({"error": f"Error reading file: {str(e)}"}), flush=True)
+            return
     
-    # Initialize the UI
-    print(json.dumps({"status": "starting"}), flush=True)
-    
+    # Initialize Tkinter
     root = tk.Tk()
-    app = AgentDebugApp(root, mood, query, file_path)
     
-    print(json.dumps({"status": "ready"}), flush=True)
-    
-    # Start the UI event loop
+    # Set style
+    style = ttk.Style()
     try:
-        root.mainloop()
-    except Exception as e:
-        error_traceback = traceback.format_exc()
-        print(json.dumps({"status": "error", "message": f"UI error: {str(e)}\n{error_traceback}"}), flush=True)
-        sys.exit(1)
+        style.theme_use('clam')  # Use a modern theme
+    except:
+        pass  # Fall back to default theme
+    
+    # Create app
+    app = AgentDebugApp(root, mood, filename, code, query)
+    
+    # Start Tkinter main loop
+    root.mainloop()
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        print(json.dumps({"error": f"Critical error: {str(e)}"}), flush=True)
+        sys.exit(1)
