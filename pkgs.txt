@@ -27,4 +27,4 @@ face-recognition
 dlib
 mtcnn
 tqdm
-tensorflow
+requests
