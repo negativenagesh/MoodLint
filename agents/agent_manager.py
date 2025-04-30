@@ -4,8 +4,8 @@ from typing import Dict, Any, Optional, Union
 from pathlib import Path
 
 from .mood_agents.happy_agent import HappyAgent
-from .mood_agents.frustrated_agent import FrustratedAgent
-from .mood_agents.exhausted_agent import ExhaustedAgent
+from .mood_agents.neutral_agent import NeutralAgent
+from .mood_agents.surprise_agent import SurpriseAgent
 from .mood_agents.sad_agent import SadAgent
 from .mood_agents.angry_agent import AngryAgent
 from .mood_agents.base_agent import MoodAgent
@@ -24,26 +24,26 @@ class AgentManager:
         if not self.api_key:
             raise ValueError("Gemini API key is required. Set GOOGLE_API_KEY environment variable.")
         
-        # Initialize all agents
+        # Initialize all agents - now using the same moods as the model: Angry, Happy, Neutral, Surprise, Sad
         self.agents: Dict[str, MoodAgent] = {
             "happy": HappyAgent(api_key=self.api_key),
-            "frustrated": FrustratedAgent(api_key=self.api_key),
-            "exhausted": ExhaustedAgent(api_key=self.api_key),
+            "neutral": NeutralAgent(api_key=self.api_key),
+            "surprise": SurpriseAgent(api_key=self.api_key),
             "sad": SadAgent(api_key=self.api_key),
             "angry": AngryAgent(api_key=self.api_key)
         }
         
         # Add some aliases for mood detection variations
         self._setup_mood_aliases()
-    
+        
     def _setup_mood_aliases(self):
         """Set up aliases for different mood variations."""
         aliases = {
             "happy": ["joyful", "excited", "pleased", "content", "positive"],
-            "frustrated": ["annoyed", "irritated", "impatient", "agitated"],
-            "exhausted": ["tired", "fatigued", "drained", "sleepy", "burned out"],
+            "neutral": ["calm", "balanced", "composed", "normal", "regular", "focused"],
+            "surprise": ["surprised", "shocked", "amazed", "astonished", "stunned"],
             "sad": ["unhappy", "disappointed", "down", "depressed", "gloomy"],
-            "angry": ["furious", "enraged", "mad", "outraged"]
+            "angry": ["furious", "enraged", "mad", "outraged", "irritated", "frustrated"]
         }
         
         # Create the alias map
@@ -60,7 +60,7 @@ class AgentManager:
             detected_mood: The mood string from mood detection
             
         Returns:
-            Normalized mood string ('happy', 'frustrated', 'exhausted', 'sad', 'angry')
+            Normalized mood string ('happy', 'neutral', 'surprise', 'sad', 'angry')
         """
         detected_mood = detected_mood.lower().strip()
         
@@ -72,8 +72,8 @@ class AgentManager:
         if detected_mood in self.mood_aliases:
             return self.mood_aliases[detected_mood]
         
-        # Default to "focused" which we'll handle with happy for now
-        return "happy"
+        # Default to "neutral" as a balanced approach
+        return "neutral"
     
     def get_agent_for_mood(self, mood: str) -> MoodAgent:
         """
@@ -86,7 +86,7 @@ class AgentManager:
             The appropriate MoodAgent instance
         """
         normalized_mood = self.normalize_mood(mood)
-        return self.agents.get(normalized_mood, self.agents["happy"])  # Default to happy
+        return self.agents.get(normalized_mood, self.agents["neutral"])  # Default to neutral
     
     def debug_code(self, code: str, filename: str, mood: str, user_query: str = "") -> Dict[str, Any]:
         """
