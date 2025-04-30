@@ -2,7 +2,7 @@ import sys
 import os
 import json
 import tkinter as tk
-from tkinter import ttk, scrolledtext
+from tkinter import ttk, scrolledtext, filedialog, Entry
 import threading
 import traceback
 import subprocess
@@ -44,8 +44,24 @@ class AgentDebugApp:
         self.code = code
         self.query = query
         
+        # File selection and query UI elements
+        self.file_path_var = tk.StringVar()
+        self.query_var = tk.StringVar()
+        
+        # If filename is provided, set it in the variable
+        if self.filename:
+            self.file_path_var.set(self.filename)
+        
+        # If query is provided, set it in the variable
+        if self.query:
+            self.query_var.set(self.query)
+        
         # Setup API key, defaulting to environment variable
         self.api_key = os.environ.get("GOOGLE_API_KEY")
+        
+        # Initialize copy_button as None before setup_window
+        self.copy_button = None
+        self.analyze_button = None
         
         # Configure the window
         self.setup_window()
@@ -69,7 +85,7 @@ class AgentDebugApp:
             
         # Start analysis if we have all dependencies and code
         if AGENT_IMPORT_SUCCESS and self.code and self.filename:
-            # Start analysis immediately
+            # Start analysis immediately for command-line mode
             self.start_analysis()
         elif not AGENT_IMPORT_SUCCESS:
             # Display error about agent import
@@ -81,10 +97,11 @@ class AgentDebugApp:
                 f"pip install langchain langchain_core langgraph google-generativeai"
             )
         else:
-            # Display welcome message if no code provided
+            # Display welcome message with instructions
             self.update_response_text(
                 f"MoodLint Agent initialized with {self.mood} mood.\n\n"
-                f"No code file was provided for analysis. Please open a code file and try again."
+                f"Please select a file to analyze using the browse button above, "
+                f"optionally enter a query, and click 'Start Analysis'."
             )
         
     def setup_window(self):
@@ -93,15 +110,15 @@ class AgentDebugApp:
         
         # Set window size and position
         window_width = 800
-        window_height = 600
+        window_height = 650  # Made taller to accommodate file selection UI
         screen_width = self.root.winfo_screenwidth()
         screen_height = self.root.winfo_screenheight()
         x = (screen_width - window_width) // 2
         y = (screen_height - window_height) // 2
         self.root.geometry(f"{window_width}x{window_height}+{x}+{y}")
         
-        # Make window non-resizable
-        self.root.resizable(False, False)
+        # Make window resizable
+        self.root.resizable(True, True)
         
         # Set mood-specific color for header
         mood_color = self.get_mood_color()
@@ -129,17 +146,38 @@ class AgentDebugApp:
         ttk.Label(status_frame, text="Status:").pack(side=tk.LEFT)
         ttk.Label(status_frame, textvariable=self.status_var).pack(side=tk.LEFT, padx=(5, 0))
         
+        # File selection frame
+        file_frame = ttk.LabelFrame(main_frame, text="File Selection", padding="10")
+        file_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        # File path entry and browse button
+        ttk.Label(file_frame, text="File:").grid(row=0, column=0, sticky=tk.W, padx=(0, 5))
+        ttk.Entry(file_frame, textvariable=self.file_path_var, width=60).grid(row=0, column=1, padx=5, sticky=tk.EW)
+        ttk.Button(file_frame, text="Browse", command=self.browse_file).grid(row=0, column=2, padx=5)
+        
+        # Query frame
+        query_frame = ttk.LabelFrame(main_frame, text="Query (Optional)", padding="10")
+        query_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        # Query entry
+        ttk.Label(query_frame, text="Query:").grid(row=0, column=0, sticky=tk.W, padx=(0, 5))
+        ttk.Entry(query_frame, textvariable=self.query_var, width=60).grid(row=0, column=1, padx=5, sticky=tk.EW)
+        
+        # Analyze button
+        self.analyze_button = ttk.Button(
+            query_frame, 
+            text="Start Analysis", 
+            command=self.on_analyze_clicked
+        )
+        self.analyze_button.grid(row=0, column=2, padx=5)
+        
+        # Configure grid columns
+        file_frame.columnconfigure(1, weight=1)
+        query_frame.columnconfigure(1, weight=1)
+        
         # Create the content frame
         content_frame = ttk.Frame(main_frame)
         content_frame.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
-        
-        # Code info frame (if applicable)
-        if self.filename:
-            info_frame = ttk.Frame(content_frame)
-            info_frame.pack(fill=tk.X, pady=(0, 10))
-            ttk.Label(info_frame, text=f"File: {self.filename}").pack(anchor=tk.W)
-            if self.query:
-                ttk.Label(info_frame, text=f"Query: {self.query}").pack(anchor=tk.W)
         
         # Response text area with custom styling
         self.response_text = scrolledtext.ScrolledText(
@@ -152,9 +190,6 @@ class AgentDebugApp:
         )
         self.response_text.pack(fill=tk.BOTH, expand=True)
         self.response_text.config(state=tk.DISABLED)  # Make it read-only initially
-        
-        # Insert initial message
-        self.update_response_text(f"Preparing to analyze with {self.mood} mood in mind...\n")
         
         # Bottom button frame
         button_frame = ttk.Frame(main_frame)
@@ -175,6 +210,52 @@ class AgentDebugApp:
             text="Close", 
             command=self.close_app
         ).pack(side=tk.RIGHT)
+        
+        # Insert initial message
+        self.update_response_text(f"Preparing to analyze with {self.mood} mood in mind...\n")
+    
+    def browse_file(self):
+        """Open file browser dialog and update file path variable"""
+        file_path = filedialog.askopenfilename(
+            title="Select File to Analyze",
+            filetypes=[
+                ("Python Files", "*.py"),
+                ("JavaScript Files", "*.js"),
+                ("HTML Files", "*.html"),
+                ("CSS Files", "*.css"),
+                ("All Files", "*.*")
+            ]
+        )
+        
+        if file_path:
+            self.file_path_var.set(file_path)
+            self.filename = file_path
+            self.status_var.set(f"File selected: {os.path.basename(file_path)}")
+    
+    def on_analyze_clicked(self):
+        """Handle start analysis button click"""
+        # Get current values from UI
+        self.filename = self.file_path_var.get()
+        self.query = self.query_var.get()
+        
+        if not self.filename or not os.path.exists(self.filename):
+            self.update_response_text("Please select a valid file to analyze.")
+            self.status_var.set("Error: No valid file selected")
+            return
+        
+        # Read the code file
+        try:
+            with open(self.filename, 'r') as file:
+                self.code = file.read()
+            
+            # Disable the analyze button during analysis
+            self.analyze_button.config(state=tk.DISABLED)
+            
+            # Start the analysis
+            self.start_analysis()
+        except Exception as e:
+            self.update_response_text(f"Error reading file: {str(e)}\nPlease select a different file.")
+            self.status_var.set("Error reading file")
     
     def get_mood_color(self):
         """Return color for the current mood"""
@@ -183,9 +264,10 @@ class AgentDebugApp:
             "sad": "#4169E1",    # royal blue
             "angry": "#FF4500",  # orangered
             "frustrated": "#FFA500",  # orange
-            "exhausted": "#800080"   # purple
+            "exhausted": "#800080",   # purple
+            "neutral": "#708090"  # slate gray (added for neutral mood)
         }
-        return mood_colors.get(self.mood.lower(), "#000000")
+        return mood_colors.get(self.mood.lower(), "#708090")  # Default to slate gray
     
     def update_response_text(self, text):
         """Update the response text area with new content"""
@@ -195,8 +277,8 @@ class AgentDebugApp:
         self.response_text.config(state=tk.DISABLED)
         self.response_text.see(1.0)  # Scroll to top
         
-        # Enable copy button if we have a response
-        if text.strip():
+        # Enable copy button if we have a response and the button exists
+        if text.strip() and hasattr(self, 'copy_button') and self.copy_button is not None:
             self.copy_button.config(state=tk.NORMAL)
     
     def copy_to_clipboard(self):
@@ -256,7 +338,6 @@ class AgentDebugApp:
                     "message": error_message,
                     "result": result
                 }), flush=True)
-                
         except Exception as e:
             error_message = str(e)
             error_trace = traceback.format_exc()
@@ -273,6 +354,10 @@ class AgentDebugApp:
                 "message": error_message,
                 "traceback": error_trace
             }), flush=True)
+        finally:
+            # Re-enable the analyze button
+            if hasattr(self, 'analyze_button') and self.analyze_button is not None:
+                self.root.after(0, lambda: self.analyze_button.config(state=tk.NORMAL))
 
 def main():
     # Parse arguments
