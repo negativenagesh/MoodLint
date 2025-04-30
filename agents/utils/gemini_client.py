@@ -201,21 +201,22 @@ class GeminiClient:
                 )
 
             # Add mood-specific instructions
+            # Add mood-specific instructions
             if mood.lower() == "angry":
                 prompt += "\nGive your analysis in a critical, direct tone, focusing on things that could irritate a developer."
                 prompt += "\nYour response should be forceful and include strong language (but remain professional)."
             elif mood.lower() == "happy":
                 prompt += "\nGive your analysis in an optimistic tone, highlighting the positive aspects while still noting improvements."
                 prompt += "\nUse enthusiastic language and focus on the potential of the code."
+            elif mood.lower() == "neutral":
+                prompt += "\nGive your analysis in a balanced, objective tone without strong emotional cues."
+                prompt += "\nFocus on clear, practical observations and balanced insights."
+            elif mood.lower() == "surprise":
+                prompt += "\nGive your analysis in a tone of discovery and revelation, highlighting unexpected aspects."
+                prompt += "\nEmphasize interesting patterns, unusual approaches, or unexpected design choices in the code."
             elif mood.lower() == "sad":
                 prompt += "\nGive your analysis in a thoughtful, slightly melancholy tone."
                 prompt += "\nNote missed opportunities and what could have been with the code."
-            elif mood.lower() == "frustrated":
-                prompt += "\nGive your analysis focusing on pain points that might frustrate a developer."
-                prompt += "\nHighlight tedious aspects and things that make working with this code difficult."
-            elif mood.lower() == "exhausted":
-                prompt += "\nGive your analysis focusing on complexity and cognitive load, noting things that would tire a developer."
-                prompt += "\nPoint out where the code requires too much mental energy to understand."
 
             # Add format guidance for better response structure
             prompt += "\n\nPlease structure your response clearly with headers and bullet points where appropriate."
