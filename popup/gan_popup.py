@@ -1,24 +1,58 @@
-#!/usr/bin/env python3
-import cv2
 import sys
 import json
 import os
 import time
-import tkinter as tk
-from tkinter import ttk, filedialog
-from PIL import Image, ImageTk
 import traceback
 import subprocess
-import torch
-import numpy as np
-import torch.nn as nn
+
+# First check for critical dependencies and provide installation instructions
+try:
+    import numpy as np
+except ImportError:
+    print(json.dumps({"error": "NumPy is not installed. Please install it with: pip install numpy"}), flush=True)
+    sys.exit(1)
 
 try:
-    from PIL import Image, ImageTk
+    import torch
+    import torch.nn as nn
+except ImportError:
+    print(json.dumps({
+        "error": "PyTorch is not installed. Please install it with: pip install torch torchvision"
+    }), flush=True)
+    sys.exit(1)
+
+try:
+    import cv2
+except ImportError:
+    print(json.dumps({"error": "OpenCV is not installed. Please install it with: pip install opencv-python"}), flush=True)
+    sys.exit(1)
+
+# First check for tkinter and show a clear error if it's missing
+try:
+    import tkinter as tk
+    from tkinter import ttk, filedialog
     HAS_TKINTER = True
 except ImportError:
     print(json.dumps({"error": "Tkinter modules not available. Please install python3-tk"}), flush=True)
     HAS_TKINTER = False
+
+# Now try to import PIL with better error handling
+try:
+    from PIL import Image
+    # Try to import ImageTk separately with a more helpful error message
+    try:
+        from PIL import ImageTk
+        HAS_PIL_TK = True
+    except ImportError:
+        print(json.dumps({"error": "ImageTk not available. On Fedora/RHEL, install python3-pillow-tk package. On Ubuntu/Debian, install python3-pil.imagetk package."}), flush=True)
+        HAS_PIL_TK = False
+except ImportError:
+    print(json.dumps({"error": "PIL/Pillow not available. Please install pillow package with: pip install pillow"}), flush=True)
+    sys.exit(1)
+
+if not HAS_TKINTER or not HAS_PIL_TK:
+    print(json.dumps({"error": "Missing required packages for GUI. Please install python3-tk and python3-pillow-tk."}), flush=True)
+    sys.exit(1)
 
 # Send startup message so extension knows we're running
 print(json.dumps({"status": "starting", "gui": "initializing"}), flush=True)
@@ -220,41 +254,64 @@ class FutureMoodApp:
             # Default to neutral if mood not found
             mood_class = mood_to_class.get(self.mood.lower(), 4)
             
-            # Load the generator model
-            generator_path = os.path.join(self.model_dir, 'generator_epoch_180.pt')
+            # Path to generate.py script
+            generate_script = os.path.join(self.model_dir, 'generate.py')
             
-            if not os.path.exists(generator_path):
-                self.status_var.set(f"Error: Model not found at {generator_path}")
-                print(json.dumps({"error": f"Model not found at {generator_path}"}), flush=True)
+            if not os.path.exists(generate_script):
+                self.status_var.set(f"Error: Generate script not found at {generate_script}")
+                print(json.dumps({"error": f"Generate script not found at {generate_script}"}), flush=True)
                 return
-            
-            generator = Generator().to(self.device)
-            generator.load_state_dict(torch.load(generator_path, map_location=self.device))
-            generator.eval()
-            
-            print(json.dumps({"progress": "Generating image..."}), flush=True)
-            
-            # Convert input image to tensor
-            transform = self.prepare_input_image(self.input_image)
-            
-            # Generate noise based on input image
-            z = torch.randn(1, 100, 1, 1, device=self.device)
-            
-            # Create labels tensor for the desired mood
-            labels = torch.full((1,), mood_class, dtype=torch.long, device=self.device)
-            
-            # Generate the image
-            with torch.no_grad():
-                generated = generator(z, labels)
                 
-                # Convert tensor to image
-                generated_img = transforms_to_pil(generated[0])
+            # Make script executable
+            try:
+                os.chmod(generate_script, 0o755)
+            except Exception as e:
+                print(json.dumps({"warning": f"Couldn't chmod generate.py: {str(e)}"}), flush=True)
+            
+            # Use Python subprocess to run generate.py
+            print(json.dumps({"progress": "Running generator script..."}), flush=True)
+            
+            # Get Python executable
+            python_exe = sys.executable
+            
+            # Run the generator script
+            cmd = [python_exe, generate_script, self.mood, self.output_path, self.image_path]
+            
+            self.status_var.set(f"Running external generator for {self.mood} mood...")
+            
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            
+            # Monitor output in real-time
+            output_lines = []
+            for line in iter(process.stdout.readline, ''):
+                if not line:
+                    break
+                    
+                output_lines.append(line.strip())
+                print(json.dumps({"debug": f"Generator output: {line.strip()}"}), flush=True)
                 
-                # Resize to display size
+                try:
+                    result = json.loads(line.strip())
+                    if "progress" in result:
+                        self.status_var.set(result["progress"])
+                    elif "error" in result:
+                        self.status_var.set(f"Error: {result['error']}")
+                except:
+                    pass
+                    
+            # Wait for process to complete
+            process.wait()
+            
+            # Check if generation was successful
+            if process.returncode == 0 and os.path.exists(self.output_path):
+                # Load and display the generated image
+                generated_img = Image.open(self.output_path)
                 generated_img = generated_img.resize((400, 400), Image.LANCZOS)
-                
-                # Save the generated image
-                generated_img.save(self.output_path)
                 
                 # Update UI with generated image
                 self.generated_image = generated_img
@@ -276,6 +333,17 @@ class FutureMoodApp:
                     "status": "generation_complete",
                     "output_path": self.output_path
                 }), flush=True)
+            else:
+                error_msg = f"Failed to generate image (exit code: {process.returncode})"
+                self.status_var.set(error_msg)
+                print(json.dumps({"error": error_msg}), flush=True)
+                
+                # Get error output
+                stderr_output = process.stderr.read()
+                if stderr_output:
+                    print(json.dumps({"error": f"Generator stderr: {stderr_output}"}), flush=True)
+                    
+                self.progress.stop()
                 
         except Exception as e:
             error_msg = f"Error generating image: {str(e)}"
