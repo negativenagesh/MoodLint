@@ -20,7 +20,8 @@
     function setupEventListeners() {
         enableCameraBtn.addEventListener('click', toggleExternalCamera);
         analyzeBtn.addEventListener('click', startAnalysis);
-
+        document.getElementById('predict-mood-btn').addEventListener('click', predictFutureMood);
+    
         window.addEventListener('message', event => {
             const message = event.data;
             console.log(`[Webview] Received: ${JSON.stringify(message)}`);
@@ -39,6 +40,9 @@
                     break;
                 case 'analysisComplete':
                     displayResults(message.results);
+                    break;
+                case 'futureMoodPredicted':
+                    handleFutureMoodPrediction(message);
                     break;
             }
         });
@@ -103,6 +107,37 @@
         moodConfidenceSection.style.display = 'block';
         confidenceBar.style.width = `${Math.round(confidence * 100)}%`;
         if (confidence >= 0.6) analyzeBtn.disabled = false;
+    }
+
+    function predictFutureMood() {
+        console.log('[Webview] Predicting future mood');
+        updateStatus('busy', 'Predicting your future mood...');
+        
+        vscode.postMessage({ 
+            command: 'predictFutureMood',
+            currentMood: currentMood || 'neutral'
+        });
+    }
+
+    function handleFutureMoodPrediction(message) {
+        if (message.error) {
+            updateStatus('', `Error: ${message.error}`);
+            return;
+        }
+        
+        updateStatus('ready', message.message || `Your future mood: ${message.mood}`);
+        
+        // Display the prediction in a visual way
+        const moodDisplay = document.getElementById('current-mood-display');
+        if (moodDisplay) {
+            moodDisplay.innerHTML = `${currentMood || 'Unknown'} → <strong>${message.mood}</strong> (predicted)`;
+        }
+        
+        // Show the confidence bar
+        if (message.confidence && moodConfidenceSection) {
+            moodConfidenceSection.style.display = 'block';
+            confidenceBar.style.width = `${Math.round(message.confidence * 100)}%`;
+        }
     }
 
     function startAnalysis() {
