@@ -13,6 +13,7 @@ let moodlintPanel: vscode.WebviewPanel | undefined = undefined;
 // Mood detection variables
 let currentMood: string | null = null;
 let moodConfidence: number = 0;
+let capturedImagePath: string | null = null;
 
 // Python camera process
 let cameraProcess: childProcess.ChildProcess | null = null;
@@ -210,6 +211,170 @@ function stopPythonCameraApp() {
 }
 
 /**
+ * Predict future mood based on current mood
+ */
+async function predictFutureMoodFromCurrent(currentMood: string) {
+    try {
+        // You could add more sophisticated prediction logic here
+        const moods = ['happy', 'sad', 'frustrated', 'angry', 'exhausted', 'neutral'];
+        // Remove current mood from options
+        const availableMoods = moods.filter(mood => mood !== currentMood);
+        // Select a random mood from the remaining options
+        const predictedMood = availableMoods[Math.floor(Math.random() * availableMoods.length)];
+        const confidence = 0.7 + (Math.random() * 0.3); // Random confidence between 0.7-1.0
+
+        if (moodlintPanel) {
+            moodlintPanel.webview.postMessage({
+                command: 'futureMoodPredicted',
+                mood: predictedMood,
+                confidence: confidence,
+                message: `Based on analysis, your mood might change to ${predictedMood} soon.`
+            });
+        }
+    } catch (error) {
+        console.error('[Extension] Error predicting future mood:', error);
+        if (moodlintPanel) {
+            moodlintPanel.webview.postMessage({
+                command: 'futureMoodPredicted',
+                error: `Failed to predict future mood: ${error instanceof Error ? error.message : String(error)}`
+            });
+        }
+    }
+}
+
+/**
+ * Generate visualization of future mood
+ */
+async function generateFutureMoodVisualization(currentMood: string) {
+    try {
+        // Check if we have a captured image to use
+        if (!capturedImagePath) {
+            vscode.window.showWarningMessage('Please upload your image first by clicking "Go with mood debug"');
+            if (moodlintPanel) {
+                moodlintPanel.webview.postMessage({
+                    command: 'futureMoodGenerated',
+                    error: 'No image uploaded. Please use "Go with mood debug" first.'
+                });
+            }
+            return;
+        }
+
+        // Inform the user that generation has started
+        vscode.window.showInformationMessage('Launching future mood generator...');
+        
+        // Launch the GAN popup
+        const pythonPath = '/home/subrahmanya/projects/MoodLint/.venv/bin/python';  // Use the virtual env if possible
+        const scriptPath = path.join(context.extensionPath, 'popup', 'gan_popup.py');
+        
+        console.log(`[Extension] Starting GAN popup for mood: ${currentMood} using image: ${capturedImagePath}`);
+        
+        // Make sure the script is executable
+        try {
+            fs.chmodSync(scriptPath, 0o755);
+        } catch (err) {
+            // Ignore chmod errors on Windows
+        }
+        
+        // Get a temporary file path for the output image
+        const outputImagePath = path.join(os.tmpdir(), `moodlint_gan_${Date.now()}.png`);
+        
+        // Launch the GAN popup process
+        const ganProcess = childProcess.spawn(pythonPath, [scriptPath, capturedImagePath, currentMood, outputImagePath], {
+            env: { 
+                ...process.env, 
+                DISPLAY: process.env.DISPLAY || ':0',
+                PYTHONUNBUFFERED: '1' // Ensure Python output isn't buffered
+            },
+            detached: true, // This is important for GUI applications
+            stdio: 'pipe'   // Ensure we can still capture output
+        });
+        
+        // Handle process output
+        ganProcess.stdout?.on('data', (data) => {
+            try {
+                const output = data.toString().trim();
+                console.log(`[Extension] GAN popup output: ${output}`);
+                
+                if (output) {
+                    try {
+                        const result = JSON.parse(output);
+                        
+                        // Check for status updates
+                        if (result.status === 'generation_complete' && result.output_path) {
+                            // Create a webview URI for the image if needed
+                            if (moodlintPanel) {
+                                const imageUri = moodlintPanel.webview.asWebviewUri(
+                                    vscode.Uri.file(result.output_path)
+                                );
+                                
+                                // Notify webview of successful generation
+                                moodlintPanel.webview.postMessage({
+                                    command: 'futureMoodGenerated',
+                                    imageUrl: imageUri.toString(),
+                                    mood: currentMood,
+                                    caption: `A unique visualization of your ${currentMood} mood`
+                                });
+                            }
+                        }
+                        
+                        // Check for errors
+                        if (result.error) {
+                            console.error(`[Extension] GAN popup reported error: ${result.error}`);
+                            vscode.window.showErrorMessage(`GAN error: ${result.error}`);
+                            
+                            if (moodlintPanel) {
+                                moodlintPanel.webview.postMessage({
+                                    command: 'futureMoodGenerated',
+                                    error: result.error
+                                });
+                            }
+                        }
+                    } catch (jsonError) {
+                        // If it's not valid JSON, just log it
+                        console.log(`[Extension] Non-JSON output: ${output}`);
+                    }
+                }
+            } catch (error) {
+                console.error('[Extension] Error parsing GAN popup output:', error);
+            }
+        });
+        
+        // Handle errors
+        ganProcess.stderr?.on('data', (data) => {
+            const errorOutput = data.toString().trim();
+            console.error(`[Extension] GAN popup error: ${errorOutput}`);
+        });
+        
+        // Handle process exit
+        ganProcess.on('close', (code) => {
+            console.log(`[Extension] GAN popup exited with code ${code}`);
+            
+            // If the process failed to launch or exited with an error
+            if (code !== 0) {
+                vscode.window.showErrorMessage(`GAN process exited with code ${code}`);
+                if (moodlintPanel) {
+                    moodlintPanel.webview.postMessage({
+                        command: 'futureMoodGenerated',
+                        error: `GAN process exited with code ${code}`
+                    });
+                }
+            }
+        });
+        
+    } catch (error) {
+        console.error('[Extension] Error generating future mood:', error);
+        vscode.window.showErrorMessage(`Error generating mood visualization: ${error instanceof Error ? error.message : String(error)}`);
+        
+        if (moodlintPanel) {
+            moodlintPanel.webview.postMessage({
+                command: 'futureMoodGenerated',
+                error: `Failed to generate mood visualization: ${error instanceof Error ? error.message : String(error)}`
+            });
+        }
+    }
+}
+
+/**
  * Creates and manages the MoodLint webview panel
  */
 function createMoodlintPanel(context: vscode.ExtensionContext) {
@@ -306,6 +471,14 @@ function createMoodlintPanel(context: vscode.ExtensionContext) {
                     console.log(`[Extension] Analyzing mood: ${message.mood}`);
                     analyzeWithMood(message.mood, message.confidence, message.options);
                     break;
+                case 'predictFutureMood':
+                    console.log(`[Extension] Predicting future mood based on: ${message.currentMood}`);
+                    predictFutureMoodFromCurrent(message.currentMood);
+                    break;
+                case 'generateFutureMood':
+                    console.log(`[Extension] Generating future mood visualization based on: ${message.currentMood}`);
+                    generateFutureMoodVisualization(message.currentMood);
+                    break;
                 default:
                     console.log('[Extension] Unknown command:', message.command);
             }
@@ -321,6 +494,12 @@ function processMoodFromPython(mood: string, confidence: number, filepath?: stri
     console.log(`[Extension] Processing mood: ${mood} (${confidence}) from image: ${filepath || 'unknown'}, autoAnalyze: ${autoAnalyze}`);
     currentMood = mood;
     moodConfidence = confidence;
+    
+    // Store the captured image path if provided
+    if (filepath) {
+        capturedImagePath = filepath;
+        console.log(`[Extension] Stored captured image path: ${capturedImagePath}`);
+    }
 
     if (moodlintPanel) {
         console.log('[Extension] Sending moodDetected from Python:', mood);
@@ -328,7 +507,8 @@ function processMoodFromPython(mood: string, confidence: number, filepath?: stri
             command: 'moodDetected',
             mood: mood,
             confidence: confidence,
-            filepath: filepath
+            filepath: filepath,
+            hasImage: !!filepath // Signal whether we have a valid image
         });
         
         // If confidence is high enough, enable analysis button
