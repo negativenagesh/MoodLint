@@ -118,17 +118,28 @@
             analyzeBtn.disabled = false;
         }
         
-        // Enable the Generate Future Mood button if we have an image
+        // Enable both mood prediction buttons if we have an image
         if (message.hasImage) {
             const generateFutureMoodBtn = document.getElementById('generate-future-mood-btn');
+            const predictMoodBtn = document.getElementById('predict-mood-btn');
+            
+            // Enable Generate Future Mood button
             if (generateFutureMoodBtn) {
                 generateFutureMoodBtn.disabled = false;
                 console.log('[Webview] Enabling Generate Future Mood button');
             } else {
                 console.error('[Webview] Could not find generate-future-mood-btn element');
             }
+            
+            // Enable Predict Future Mood button
+            if (predictMoodBtn) {
+                predictMoodBtn.disabled = false;
+                console.log('[Webview] Enabling Predict Future Mood button');
+            } else {
+                console.error('[Webview] Could not find predict-mood-btn element');
+            }
         } else {
-            console.log('[Webview] No image detected, future mood button remains disabled');
+            console.log('[Webview] No image detected, future mood buttons remain disabled');
         }
         
         updateStatus('ready', `Mood detected: ${message.mood}`);
@@ -305,10 +316,19 @@
     }
 
     function initialize() {
-        // ...existing code...
+        // Disable mood prediction buttons initially
+        const predictMoodBtn = document.getElementById('predict-mood-btn');
+        const generateFutureMoodBtn = document.getElementById('generate-future-mood-btn');
+        
+        if (predictMoodBtn) {
+            predictMoodBtn.disabled = true;
+        }
+        
+        if (generateFutureMoodBtn) {
+            generateFutureMoodBtn.disabled = true;
+        }
         
         // Generate Future Mood button
-        const generateFutureMoodBtn = document.getElementById('generate-future-mood-btn');
         if (generateFutureMoodBtn) {
             generateFutureMoodBtn.addEventListener('click', generateFutureMood);
         }
