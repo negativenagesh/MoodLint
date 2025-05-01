@@ -358,43 +358,44 @@ def main():
         # AUTOMATIC FALLBACK FOR SLOW CPUs
         # Check CPU capability - automatically use fallback on slow CPUs
         use_fallback = False
-        try:
-            # Use cpu_count and simple benchmark to determine if we should use fallback
-            import multiprocessing
-            cpu_count = multiprocessing.cpu_count()
+        print(json.dumps({"info": "Automatic fallback disabled. Running actual model inference."}), flush=True)
+        # try:
+        #     # Use cpu_count and simple benchmark to determine if we should use fallback
+        #     import multiprocessing
+        #     cpu_count = multiprocessing.cpu_count()
             
-            # Simple CPU speed test (matrix multiplication)
-            import time
-            import numpy as np
+        #     # Simple CPU speed test (matrix multiplication)
+        #     import time
+        #     import numpy as np
             
-            print(json.dumps({"progress": "Testing CPU capability..."}), flush=True)
-            start_time = time.time()
-            # Simple matrix operation to test CPU speed
-            test_size = 500
-            a = np.random.rand(test_size, test_size)
-            b = np.random.rand(test_size, test_size)
-            c = np.dot(a, b)
-            elapsed = time.time() - start_time
+        #     print(json.dumps({"progress": "Testing CPU capability..."}), flush=True)
+        #     start_time = time.time()
+        #     # Simple matrix operation to test CPU speed
+        #     test_size = 500
+        #     a = np.random.rand(test_size, test_size)
+        #     b = np.random.rand(test_size, test_size)
+        #     c = np.dot(a, b)
+        #     elapsed = time.time() - start_time
             
-            # If benchmark takes more than 0.5 seconds, CPU is likely too slow
-            if elapsed > 0.5:
-                print(json.dumps({"warning": f"CPU appears to be slow (benchmark: {elapsed:.2f}s), using fallback mode"}), flush=True)
-                use_fallback = True
+        #     # If benchmark takes more than 0.5 seconds, CPU is likely too slow
+        #     if elapsed > 30:
+        #         print(json.dumps({"warning": f"CPU appears to be slow (benchmark: {elapsed:.2f}s), using fallback mode"}), flush=True)
+        #         use_fallback = True
                 
-        except ImportError:
-            # If numpy isn't available, check processor info
-            try:
-                import platform
-                processor = platform.processor()
-                print(json.dumps({"info": f"Processor: {processor}"}), flush=True)
+        # except ImportError:
+        #     # If numpy isn't available, check processor info
+        #     try:
+        #         import platform
+        #         processor = platform.processor()
+        #         print(json.dumps({"info": f"Processor: {processor}"}), flush=True)
                 
-                # If processor info contains certain keywords that suggest old/slow CPU
-                if any(term in processor.lower() for term in ['atom', 'celeron', 'pentium']):
-                    print(json.dumps({"warning": f"Potentially slow CPU detected ({processor}), using fallback mode"}), flush=True)
-                    use_fallback = True
-            except:
-                # Can't detect CPU, be conservative
-                print(json.dumps({"warning": "Unable to determine CPU capability, proceeding carefully"}), flush=True)
+        #         # If processor info contains certain keywords that suggest old/slow CPU
+        #         if any(term in processor.lower() for term in ['atom', 'celeron', 'pentium']):
+        #             print(json.dumps({"warning": f"Potentially slow CPU detected ({processor}), using fallback mode"}), flush=True)
+        #             use_fallback = True
+        #     except:
+        #         # Can't detect CPU, be conservative
+        #         print(json.dumps({"warning": "Unable to determine CPU capability, proceeding carefully"}), flush=True)
         
         # Load and preprocess image - ensure this step works
         print(json.dumps({"step": "preprocessing_image"}), flush=True)
@@ -490,8 +491,8 @@ def main():
             "Angry": "angry",
             "Happy": "happy",
             "Sad": "sad",
-            "Neutral": "happy",  # Map neutral to happy for agent compatibility
-            "Surprise": "happy"  # Map surprise to happy for agent compatibility
+            "Neutral": "neutral",  
+            "Surprise": "surprise"
         }
         
         agent_mood = mood_mapping.get(mood, "happy").lower()
