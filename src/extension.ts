@@ -138,7 +138,7 @@ function startPythonCameraApp(context: vscode.ExtensionContext): Promise<void> {
                 if (errorOutput.includes('No module named')) {
                     const missingModule = errorOutput.match(/No module named '([^']+)'/);
                     if (missingModule && missingModule[1]) {
-                        vscode.window.showErrorMessage(
+                        vscode.window.showWarningMessage(
                             `Missing Python module: ${missingModule[1]}. Please install it with: pip install ${missingModule[1]}`
                         );
                     }
@@ -211,35 +211,135 @@ function stopPythonCameraApp() {
 }
 
 /**
- * Predict future mood based on current mood
+ * Launch the LSTM mood prediction popup
  */
-async function predictFutureMoodFromCurrent(currentMood: string) {
+async function launchLstmPrediction() {
     try {
-        // You could add more sophisticated prediction logic here
-        const moods = ['happy', 'sad', 'frustrated', 'angry', 'exhausted', 'neutral'];
-        // Remove current mood from options
-        const availableMoods = moods.filter(mood => mood !== currentMood);
-        // Select a random mood from the remaining options
-        const predictedMood = availableMoods[Math.floor(Math.random() * availableMoods.length)];
-        const confidence = 0.7 + (Math.random() * 0.3); // Random confidence between 0.7-1.0
-
-        if (moodlintPanel) {
-            moodlintPanel.webview.postMessage({
-                command: 'futureMoodPredicted',
-                mood: predictedMood,
-                confidence: confidence,
-                message: `Based on analysis, your mood might change to ${predictedMood} soon.`
-            });
+        // Get the popup directory
+        const popupDir = path.join(context.extensionPath, 'popup');
+        const lstmPopupUiPath = path.join(popupDir, 'lstm_popup_ui.py');
+        
+        // Get images directory from the camera app
+        const imagesDir = path.join(popupDir, 'images');
+        
+        // Check if we have enough images
+        let imageCount = 0;
+        try {
+            const files = fs.readdirSync(imagesDir);
+            imageCount = files.filter(file => 
+                file.toLowerCase().endsWith('.jpg') || 
+                file.toLowerCase().endsWith('.jpeg') || 
+                file.toLowerCase().endsWith('.png')
+            ).length;
+        } catch (err) {
+            // Handle directory not existing or other errors
+            console.error(`[Extension] Error checking image directory: ${err}`);
         }
-    } catch (error) {
-        console.error('[Extension] Error predicting future mood:', error);
+        
+        if (imageCount < 1) {
+            vscode.window.showWarningMessage('No mood images found. Please use "Go with mood debug" to capture your mood first.');
+            if (moodlintPanel) {
+                moodlintPanel.webview.postMessage({
+                    command: 'futureMoodPredicted',
+                    error: 'No mood images found. Please use "Go with mood debug" to capture your mood first.'
+                });
+            }
+            return;
+        }
+        
+        // Launch the LSTM prediction UI
+        console.log(`[Extension] Launching LSTM prediction UI for directory: ${imagesDir}`);
+        vscode.window.showInformationMessage('Launching mood prediction...');
+        
+        // Get Python executable
+        const pythonPath = path.join(context.extensionPath, '.venv', 'bin', 'python');
+        
+        // Start the popup process
+        const lstmProcess = childProcess.spawn(pythonPath, [lstmPopupUiPath, imagesDir]);
+        
+        let didHandleResult = false;
+        
+        // Handle stdout data
+        lstmProcess.stdout.on('data', (data) => {
+            const output = data.toString();
+            console.log(`[Extension] LSTM UI: ${output}`);
+            
+            // Parse JSON responses from the popup
+            const jsonResponses = output.trim().split('\n')
+                .filter((line: string) => line.trim().startsWith('{'))
+                .map((line: string) => {
+                    try {
+                        return JSON.parse(line);
+                    } catch (err) {
+                        console.error(`[Extension] Error parsing JSON: ${line}`);
+                        return null;
+                    }
+                })
+                .filter((json: unknown) => json !== null);
+            
+            // Process each JSON response
+            for (const json of jsonResponses) {
+                // Handle prediction result
+                if (json.status === 'prediction_complete' && !didHandleResult) {
+                    didHandleResult = true;
+                    if (moodlintPanel) {
+                        moodlintPanel.webview.postMessage({
+                            command: 'futureMoodPredicted',
+                            mood: json.mood,
+                            confidence: json.confidence,
+                            message: json.message
+                        });
+                    }
+                }
+                
+                // Handle errors
+                if (json.error && !didHandleResult) {
+                    didHandleResult = true;
+                    console.error(`[Extension] LSTM prediction error: ${json.error}`);
+                    if (moodlintPanel) {
+                        moodlintPanel.webview.postMessage({
+                            command: 'futureMoodPredicted',
+                            error: json.error
+                        });
+                    }
+                }
+            }
+        });
+        
+        // Handle stderr data
+        lstmProcess.stderr.on('data', (data) => {
+            const output = data.toString();
+            console.error(`[Extension] LSTM UI stderr: ${output}`);
+        });
+        
+        // Handle process exit
+        lstmProcess.on('close', (code) => {
+            console.log(`[Extension] LSTM UI process exited with code ${code}`);
+            // If we haven't handled a result yet, send a generic one
+            if (!didHandleResult && moodlintPanel) {
+                moodlintPanel.webview.postMessage({
+                    command: 'futureMoodPredicted',
+                    error: 'Mood prediction window was closed before completion.'
+                });
+            }
+        });
+        
+    } catch (err) {
+        console.error(`[Extension] Error launching LSTM UI: ${err}`);
+        vscode.window.showErrorMessage(`Failed to launch mood prediction: ${err}`);
+        
         if (moodlintPanel) {
             moodlintPanel.webview.postMessage({
                 command: 'futureMoodPredicted',
-                error: `Failed to predict future mood: ${error instanceof Error ? error.message : String(error)}`
+                error: `Failed to launch: ${err}`
             });
         }
     }
+}
+
+async function predictFutureMoodFromCurrent(currentMood: string) {
+    // Launch the LSTM prediction popup
+    launchLstmPrediction();
 }
 
 /**
@@ -263,7 +363,8 @@ async function generateFutureMoodVisualization(currentMood: string) {
         vscode.window.showInformationMessage('Launching future mood generator...');
         
         // Launch the GAN popup
-        const pythonPath = path.join(context.extensionPath, '.venv', 'bin', 'python');        const scriptPath = path.join(context.extensionPath, 'popup', 'gan_popup.py');
+        const pythonPath = path.join(context.extensionPath, '.venv', 'bin', 'python');
+        const scriptPath = path.join(context.extensionPath, 'popup', 'gan_popup.py');
         console.log(`[Extension] Starting GAN popup for mood: ${currentMood} using image: ${capturedImagePath}`);
         
         // Make sure the script is executable
