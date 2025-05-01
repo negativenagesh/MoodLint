@@ -123,7 +123,7 @@ export function getWebviewContent(
                     <div class="button-container">
                         <button id="enable-camera-btn" class="primary-button">Go with mood debug</button>
                         <button id="analyze-btn" class="primary-button" disabled>Start Debugging</button>
-                        <button id="predict-mood-btn" class="primary-button">Predict Future Mood</button>                        
+                        <button id="predict-mood-btn" class="primary-button" disabled>Predict Future Mood</button>                        
                         <button id="generate-future-mood-btn" class="primary-button" disabled>Generate your future mood</button>                    
                     </div>
                 </section>
