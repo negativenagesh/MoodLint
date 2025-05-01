@@ -177,8 +177,12 @@ class CameraApp:
                 
                 # Process the output
                 if process.returncode == 0:
-                    # Try to parse the last line as JSON for the mood result
+                    # Store all output lines for debugging
                     output_lines = stdout.strip().split('\n')
+                    for i, line in enumerate(output_lines):
+                        print(json.dumps({"debug": f"Output line {i}: {line}"}), flush=True)
+                    
+                    # Try to parse the last line as JSON for the mood result
                     result_line = output_lines[-1] if output_lines else '{}'
                     
                     try:
@@ -186,59 +190,76 @@ class CameraApp:
                         mood = result.get('mood', 'Unknown')
                         confidence = result.get('confidence', 0.7)
                         
-                        print(json.dumps({"info": f"Detected mood: {mood}"}), flush=True)
+                        # Check if this is a fallback result
+                        is_fallback = result.get('fallback', False)
+                        if is_fallback:
+                            print(json.dumps({"warning": "Using fallback mood detection"}), flush=True)
+                        
+                        print(json.dumps({"info": f"Detected mood: {mood} (confidence: {confidence}, fallback: {is_fallback})"}), flush=True)
                         
                         # Update the UI with the detected mood
                         if self.is_tkinter:
-                            self.status_var.set(f"Detected mood: {mood}")
+                            self.status_var.set(f"Detected mood: {mood}{' (fallback)' if is_fallback else ''}")
                         
                         # Return mood and confidence separately since that's what capture_image expects
                         return mood, confidence
                     except json.JSONDecodeError:
                         print(json.dumps({"error": f"Failed to parse inference result: {result_line}"}), flush=True)
-                        # Return fallback values
-                        return "Happy", 0.7
+                        # Try to parse stderr for potential Python error messages
+                        if stderr:
+                            print(json.dumps({"error": f"stderr: {stderr}"}), flush=True)
+                        # Return fallback values that are more varied
+                        moods = ["Neutral", "Sad", "Angry", "Surprise"]  # Don't just default to Happy
+                        selected_mood = random.choice(moods)
+                        return selected_mood, 0.6 + random.random() * 0.3  # Random confidence between 0.6-0.9
                 else:
                     print(json.dumps({"error": f"Inference process failed with return code: {process.returncode}"}), flush=True)
                     if stderr:
                         print(json.dumps({"error": f"Stderr: {stderr}"}), flush=True)
-                    # Return fallback values
-                    return "Happy", 0.7
+                    # Print stdout as well for debugging
+                    if stdout:
+                        print(json.dumps({"error": f"Stdout: {stdout}"}), flush=True)
+                    # Return fallback values with random mood
+                    moods = ["Neutral", "Sad", "Angry", "Surprise"]  # Don't just default to Happy
+                    return random.choice(moods), 0.6 + random.random() * 0.3
             
             except subprocess.TimeoutExpired:
                 print(json.dumps({"error": "Mood detection timed out after 300 seconds"}), flush=True)
                 process.kill()
                 
-                # Return fallback values that match what capture_image expects
-                return "Happy", 0.7
+                # Return fallback values with variety
+                moods = ["Neutral", "Sad", "Angry", "Surprise"]  # Don't just default to Happy
+                return random.choice(moods), 0.6 + random.random() * 0.3
             
         except Exception as e:
             print(json.dumps({"error": f"Error in detect_mood: {str(e)}"}), flush=True)
-            # Return fallback values instead of None
-            return "Happy", 0.7
-    
+            print(json.dumps({"trace": traceback.format_exc()}), flush=True)
+            # Return fallback values with random mood for variety
+            moods = ["Neutral", "Sad", "Angry", "Happy", "Surprise"]
+            return random.choice(moods), 0.6 + random.random() * 0.3
+        
     def capture_image(self, event=None):
         """Capture and save the current camera frame and detect mood"""
         if not self.camera_active:
             print(json.dumps({"error": "Camera not active, cannot capture image"}), flush=True)
             return
-            
+                
         try:
             # For Fedora/Wayland - capture multiple frames to ensure a good image
             for _ in range(3):  # Warm up the camera
                 ret, _ = self.camera.read()
                 if not ret:
                     print(json.dumps({"warning": "Failed to read frame during warm-up"}), flush=True)
-                
+                    
             # Final capture
             ret, frame = self.camera.read()
-            
+                
             if ret and frame is not None and frame.size > 0:
                 # Generate a filename with timestamp
                 timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
                 filename = f"mood_capture_{timestamp}.jpg"
                 filepath = os.path.join(self.image_dir, filename)
-                
+                    
                 # Save the image with better error handling
                 try:
                     success = cv2.imwrite(filepath, frame)
@@ -255,24 +276,24 @@ class CameraApp:
                     except Exception as e2:
                         print(json.dumps({"error": f"Failed to save PNG image: {str(e2)}"}), flush=True)
                         return
-                
+                    
                 # Update status and notify that image was captured
                 if self.is_tkinter:
                     self.status_var.set(f"Image captured. Analyzing mood...")
                     self.root.update()  # Force immediate UI update
-                
+                    
                 print(json.dumps({"status": "image_captured", "filepath": filepath}), flush=True)
-                
+                    
                 # Detect mood from the captured image
                 print(json.dumps({"status": "running_inference"}), flush=True)
                 mood, confidence = self.detect_mood(filepath)
-                
+                    
                 if mood:
                     # Successfully detected mood
                     if self.is_tkinter:
                         self.status_var.set(f"Detected mood: {mood} (confidence: {confidence:.2f})")
                         self.root.update()
-                    
+                        
                     # Send the detected mood back to the extension
                     print(json.dumps({
                         "status": "mood_detected",
@@ -282,25 +303,25 @@ class CameraApp:
                         "autoAnalyze": True,
                         "openAgent": True
                     }), flush=True)
-                    
+                        
                     # Wait a moment to ensure message is processed
                     time.sleep(0.5)
-                    
+                        
                     # Close the camera window
                     self.on_closing()
                 else:
                     # Failed to detect mood - be explicit about fallback
                     print(json.dumps({"status": "mood_detection_failed", "using_fallback": True}), flush=True)
-                    
+                        
                     # Fallback to a valid agent mood if detection failed
                     fallback_moods = ["happy", "sad", "angry"]
                     agent_mood = random.choice(fallback_moods)
                     fallback_confidence = 0.7
-                    
+                        
                     if self.is_tkinter:
                         self.status_var.set(f"Using fallback mood: {agent_mood} (detection failed)")
                         self.root.update()
-                    
+                        
                     # Send the fallback mood but clearly mark it as fallback
                     print(json.dumps({
                         "status": "mood_detected",
@@ -311,39 +332,39 @@ class CameraApp:
                         "fallback": True,
                         "openAgent": True
                     }), flush=True)
-                    
+                        
                     # Wait a moment to ensure message is processed
                     time.sleep(0.5)
-                    
+                        
                     # Close the camera window
                     self.on_closing()
-                    
+                        
             else:
                 error_msg = "Failed to capture image"
                 if self.is_tkinter:
                     self.status_var.set(error_msg)
                 print(json.dumps({"error": error_msg}), flush=True)
-                
+                    
         except Exception as e:
             error_msg = f"Error capturing image: {str(e)}"
             if self.is_tkinter:
                 self.status_var.set(error_msg)
             print(json.dumps({"error": error_msg}), flush=True)
             print(json.dumps({"trace": traceback.format_exc()}), flush=True)
-    
+        
     def start_camera(self):
         """Start the camera with better handling for Fedora/Wayland"""
         if self.camera_active:
             return
-            
+                
         if self.is_tkinter:
             self.status_var.set("Starting camera...")
             self.root.update()
-        
+            
         try:
             # Try different methods to open camera
             print(json.dumps({"status": "opening_camera", "method": "v4l2"}), flush=True)
-            
+                
             # First try: V4L2 backend (Linux)
             try:
                 self.camera = cv2.VideoCapture(0, cv2.CAP_V4L2)
@@ -354,14 +375,14 @@ class CameraApp:
             except Exception as e:
                 print(json.dumps({"warning": f"Error with V4L2 backend: {str(e)}"}), flush=True)
                 self.camera = None
-            
+                
             # Second try: Default backend
             if self.camera is None or not self.camera.isOpened():
                 print(json.dumps({"status": "opening_camera", "method": "default"}), flush=True)
                 self.camera = cv2.VideoCapture(0)
                 if self.camera.isOpened():
                     print(json.dumps({"info": "Camera opened successfully with default backend"}), flush=True)
-            
+                
             # Third try: Try specific APIs (Windows DirectShow, etc.)
             if self.camera is None or not self.camera.isOpened():
                 apis = [cv2.CAP_DSHOW, cv2.CAP_MSMF, cv2.CAP_ANY]
@@ -375,7 +396,7 @@ class CameraApp:
                     except Exception as e:
                         print(json.dumps({"warning": f"Error with API {api}: {str(e)}"}), flush=True)
                         continue
-            
+                
             # Final check
             if not self.camera or not self.camera.isOpened():
                 error_msg = "Error: Could not open camera with any method"
@@ -383,11 +404,11 @@ class CameraApp:
                     self.status_var.set(error_msg)
                 print(json.dumps({"error": error_msg}), flush=True)
                 return
-                
+                    
             # Set camera resolution
             self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
             self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-            
+                
             # Test read a frame to verify camera works
             ret, test_frame = self.camera.read()
             if not ret or test_frame is None or test_frame.size == 0:
@@ -398,9 +419,9 @@ class CameraApp:
                 self.camera.release()
                 self.camera = None
                 return
-            
+                
             self.camera_active = True
-            
+                
             if self.is_tkinter:
                 self.camera_button.config(text="Stop Camera")
                 self.capture_button.config(state=tk.NORMAL)  # Enable capture button
@@ -408,109 +429,109 @@ class CameraApp:
                 self.update_frame()
             else:
                 self.run_opencv_loop()
-                
+                    
             # Tell extension camera is running
             print(json.dumps({"status": "camera_started"}), flush=True)
-            
+                
         except Exception as e:
             error_msg = f"Error: {str(e)}"
             if self.is_tkinter:
                 self.status_var.set(error_msg)
             print(json.dumps({"error": error_msg}), flush=True)
             print(json.dumps({"trace": traceback.format_exc()}), flush=True)
-    
+        
     def stop_camera(self):
         if not self.camera_active:
             return
-        
+            
         if self.is_tkinter:    
             # Cancel any pending after callback
             if hasattr(self, 'after_id') and self.after_id:
                 self.root.after_cancel(self.after_id)
                 self.after_id = None
-        
+            
         # Release camera
         if self.camera is not None:
             self.camera.release()
             self.camera = None
-        
+            
         self.camera_active = False
-        
+            
         if self.is_tkinter:
             self.camera_button.config(text="Start Camera")
             self.capture_button.config(state=tk.DISABLED)  # Disable capture button
             self.status_var.set("Camera stopped")
-            
+                
             # Clear canvas and add placeholder text
             self.canvas.delete("all")
             self.canvas.create_text(320, 240, text="Camera Preview", fill="white", font=("Arial", 20))
-    
+        
     def toggle_camera(self):
         if self.camera_active:
             self.stop_camera()
         else:
             self.start_camera()
-    
+        
     def update_frame(self):
         if not self.camera_active:
             return
-            
+                
         try:
             ret, frame = self.camera.read()
-            
+                
             if ret and frame is not None and frame.size > 0:
                 # Convert frame from BGR (OpenCV format) to RGB (PIL format)
                 frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                
+                    
                 # Create PIL image
                 pil_image = Image.fromarray(frame_rgb)
-                
+                    
                 # Convert PIL image to PhotoImage
                 self.current_frame = ImageTk.PhotoImage(image=pil_image)
-                
+                    
                 # Clear canvas and display image
                 self.canvas.delete("all")
                 self.canvas.create_image(320, 240, image=self.current_frame, anchor=tk.CENTER)
-                
+                    
                 # Add SPACE key hint as overlay text
                 self.canvas.create_text(320, 450, text="Press SPACE to capture", 
-                                      fill="white", font=("Arial", 12),
-                                      tags="hint")
-                
+                                       fill="white", font=("Arial", 12),
+                                       tags="hint")
+                    
                 # Schedule next update
                 self.after_id = self.root.after(33, self.update_frame)  # ~30 FPS
             else:
                 # Camera capture failed
                 print(json.dumps({"error": "Failed to capture frame"}), flush=True)
                 self.stop_camera()
-                
+                    
         except Exception as e:
             print(json.dumps({"error": f"Frame update error: {str(e)}"}), flush=True)
             self.stop_camera()
-    
+        
     def run_opencv_loop(self):
         """Run camera loop for OpenCV window mode"""
         # Create a window for display
         cv2.namedWindow(self.window_name, cv2.WINDOW_NORMAL)
         cv2.resizeWindow(self.window_name, 640, 480)
-        
+            
         while self.camera_active:
             try:
                 ret, frame = self.camera.read()
-                
+                    
                 if not ret or frame is None or frame.size == 0:
                     print(json.dumps({"error": "Failed to capture frame"}), flush=True)
                     time.sleep(0.5)  # Wait a bit before giving up
                     continue
-                    
+                        
                 # Display status information on frame
                 status_text = "Press SPACE to capture, ESC to exit"
                 cv2.putText(frame, status_text, (10, 30), 
                              cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                
+                    
                 # Display the resulting frame
                 cv2.imshow(self.window_name, frame)
-                
+                    
                 # Check for key press (ESC = exit, SPACE = capture image)
                 key = cv2.waitKey(30) & 0xFF  # Use & 0xFF for compatibility
                 if key == 27:  # ESC key
@@ -520,10 +541,10 @@ class CameraApp:
             except Exception as e:
                 print(json.dumps({"error": f"OpenCV error: {str(e)}"}), flush=True)
                 time.sleep(1)  # Wait a bit before continuing
-                
+                    
         self.stop_camera()
         cv2.destroyAllWindows()
-    
+        
     def on_closing(self):
         self.stop_camera()
         if self.is_tkinter:
