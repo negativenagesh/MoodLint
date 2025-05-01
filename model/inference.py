@@ -90,27 +90,76 @@ class ExpressionRecognitionModel(nn.Module):
         return x
 
 def preprocess_image(image_path):
-    """Preprocess the input image for model inference"""
+    """Load and preprocess image for model input"""
     try:
-        # Verify file exists
+        print(json.dumps({"progress": "Loading image from path"}), flush=True)
+        
+        # Check if file exists
         if not os.path.exists(image_path):
             print(json.dumps({"error": f"Image file not found: {image_path}"}), flush=True)
             return None
-            
-        # Define transforms - match the preprocessing used in training
+        
+        # Check file size
+        file_size = os.path.getsize(image_path)
+        print(json.dumps({"info": f"Image file size: {file_size} bytes"}), flush=True)
+        if file_size <= 0:
+            print(json.dumps({"error": "Image file is empty"}), flush=True)
+            return None
+        
+        # Try multiple methods to load the image
+        image = None
+        error_message = ""
+        
+        # Method 1: PIL
+        try:
+            from PIL import Image
+            image = Image.open(image_path)
+            image = image.convert('RGB')
+            print(json.dumps({"info": "Image loaded with PIL"}), flush=True)
+        except Exception as e:
+            error_message += f"PIL error: {str(e)}; "
+        
+        # Method 2: OpenCV if PIL failed
+        if image is None:
+            try:
+                import cv2
+                image_cv = cv2.imread(image_path)
+                if image_cv is not None and image_cv.size > 0:
+                    image_cv = cv2.cvtColor(image_cv, cv2.COLOR_BGR2RGB)
+                    # Convert to PIL
+                    from PIL import Image
+                    image = Image.fromarray(image_cv)
+                    print(json.dumps({"info": "Image loaded with OpenCV"}), flush=True)
+                else:
+                    error_message += "OpenCV returned empty image; "
+            except Exception as e:
+                error_message += f"OpenCV error: {str(e)}; "
+        
+        if image is None:
+            print(json.dumps({"error": f"Failed to load image: {error_message}"}), flush=True)
+            return None
+        
+        # Transform the image for model input
+        print(json.dumps({"progress": "Resizing image"}), flush=True)
+        image = image.resize((48, 48))  # Resize to model input size
+        
+        # Convert to tensor and normalize
+        print(json.dumps({"progress": "Converting to tensor"}), flush=True)
         transform = transforms.Compose([
-            transforms.Resize((224, 224)),
             transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
         ])
         
-        # Load and transform image
-        with Image.open(image_path) as img:
-            img = img.convert('RGB')
-            input_tensor = transform(img)
-            # Add batch dimension
-            input_tensor = input_tensor.unsqueeze(0)
-            return input_tensor
+        image_tensor = transform(image).unsqueeze(0)  # Add batch dimension
+        print(json.dumps({"progress": "Image preprocessing complete"}), flush=True)
+        
+        # Check tensor for issues
+        if torch.isnan(image_tensor).any():
+            print(json.dumps({"error": "Tensor contains NaN values"}), flush=True)
+            return None
+            
+        return image_tensor
+        
     except Exception as e:
         print(json.dumps({"error": f"Error preprocessing image: {str(e)}"}), flush=True)
         return None
@@ -206,10 +255,10 @@ def predict_mood(model, image_tensor, device):
     try:
         # Check if we're in fallback mode
         if model is None:
-            print(json.dumps({"warning": "Using fallback prediction mode"}), flush=True)
+            print(json.dumps({"warning": "Using fallback prediction mode - model is None"}), flush=True)
             
             # Return a fallback prediction (random but with fixed seed for consistency)
-            random.seed(42)  # Fixed seed for reproducibility
+            random.seed(int(time.time()))  # Use current time for seed
             emotions = ['Angry', 'Happy', 'Neutral', 'Sad', 'Surprise']
             confidence = random.uniform(0.6, 0.8)  # Reasonable confidence
             emotion_idx = random.randint(0, len(emotions)-1)
@@ -222,48 +271,64 @@ def predict_mood(model, image_tensor, device):
                     all_probabilities[emotion] = confidence
                 else:
                     all_probabilities[emotion] = (1.0 - confidence) / (len(emotions) - 1)
-                    
+            
             return predicted_emotion, confidence, all_probabilities
             
         # Send progress update before transferring tensor
         print(json.dumps({"progress": "Preparing input tensor"}), flush=True)
         
-        # Transfer tensor to device
-        image_tensor = image_tensor.to(device)
+        try:
+            # Transfer tensor to device
+            image_tensor = image_tensor.to(device)
+            print(json.dumps({"progress": "Tensor transferred to device"}), flush=True)
+        except Exception as e:
+            print(json.dumps({"error": f"Error transferring tensor to device: {str(e)}"}), flush=True)
+            raise
         
         # Send progress update before inference
         print(json.dumps({"progress": "Running model inference"}), flush=True)
         
         # Run inference with explicit status updates
         with torch.no_grad():
-            # Optimize memory usage for CPU
-            torch.set_num_threads(2)  # Use fewer threads to reduce CPU load
-            
-            # Run the model
-            print(json.dumps({"progress": "Forward pass started"}), flush=True)
-            outputs = model(image_tensor)  # Forward method now has progress updates
-            print(json.dumps({"progress": "Forward pass completed"}), flush=True)
-            
-            probabilities = F.softmax(outputs, dim=1)
-            
-            # Get confidence scores for all classes
-            probs_array = probabilities[0].cpu().numpy()
-            
-            # Get top prediction
-            confidence, predicted = torch.max(probabilities, 1)
-            
-            # Map index to emotion label - use correct labels from training
-            emotion_labels = ['Angry', 'Happy', 'Neutral', 'Sad', 'Surprise']
-            predicted_emotion = emotion_labels[predicted.item()]
-            
-            # Create probability dictionary for all emotions
-            all_probabilities = {emotion: float(probs_array[i]) for i, emotion in enumerate(emotion_labels)}
-            
-            print(json.dumps({"progress": "Prediction complete", "mood": predicted_emotion}), flush=True)
-            return predicted_emotion, confidence.item(), all_probabilities
+            try:
+                # Optimize memory usage for CPU
+                torch.set_num_threads(2)  # Use fewer threads to reduce CPU load
+                
+                # Run the model
+                print(json.dumps({"progress": "Forward pass started"}), flush=True)
+                outputs = model(image_tensor)  # Forward method now has progress updates
+                print(json.dumps({"progress": "Forward pass completed"}), flush=True)
+                
+                probabilities = F.softmax(outputs, dim=1)
+                
+                # Get confidence scores for all classes
+                probs_array = probabilities[0].cpu().numpy()
+                
+                # Get top prediction
+                confidence, predicted = torch.max(probabilities, 1)
+                
+                # Debug the model output
+                print(json.dumps({"debug": f"Raw model output: {outputs.tolist()}"}), flush=True)
+                print(json.dumps({"debug": f"Probabilities: {probs_array.tolist()}"}), flush=True)
+                print(json.dumps({"debug": f"Predicted index: {predicted.item()}, confidence: {confidence.item()}"}), flush=True)
+                
+                # Map index to emotion label - use correct labels from training
+                emotion_labels = ['Angry', 'Happy', 'Neutral', 'Sad', 'Surprise']
+                predicted_emotion = emotion_labels[predicted.item()]
+                
+                # Create probability dictionary for all emotions
+                all_probabilities = {emotion: float(probs_array[i]) for i, emotion in enumerate(emotion_labels)}
+                
+                print(json.dumps({"progress": "Prediction complete", "mood": predicted_emotion}), flush=True)
+                return predicted_emotion, confidence.item(), all_probabilities
+            except Exception as e:
+                print(json.dumps({"error": f"Error during forward pass: {str(e)}"}), flush=True)
+                print(json.dumps({"trace": traceback.format_exc()}), flush=True)
+                raise
     
     except Exception as e:
         print(json.dumps({"error": f"Error during prediction: {str(e)}"}), flush=True)
+        print(json.dumps({"trace": traceback.format_exc()}), flush=True)
         return None, 0.0, {}
 
 def main():
