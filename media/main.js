@@ -21,6 +21,7 @@
         enableCameraBtn.addEventListener('click', toggleExternalCamera);
         analyzeBtn.addEventListener('click', startAnalysis);
         document.getElementById('predict-mood-btn').addEventListener('click', predictFutureMood);
+        document.getElementById('generate-future-mood-btn').addEventListener('click', generateFutureMood);
     
         window.addEventListener('message', event => {
             const message = event.data;
@@ -36,13 +37,16 @@
                     handleCameraOff();
                     break;
                 case 'moodDetected':
-                    handleMoodDetection(message.mood, message.confidence);
+                    handleMoodDetection(message);
                     break;
                 case 'analysisComplete':
                     displayResults(message.results);
                     break;
                 case 'futureMoodPredicted':
                     handleFutureMoodPrediction(message);
+                    break;
+                case 'futureMoodGenerated':
+                    handleFutureMoodGeneration(message);
                     break;
             }
         });
@@ -99,14 +103,35 @@
         moodConfidenceSection.style.display = 'none';
     }
 
-    function handleMoodDetection(mood, confidence) {
-        console.log(`[Webview] Mood: ${mood} (${confidence})`);
-        currentMood = mood;
-        moodConfidence = confidence;
-        currentMoodDisplay.textContent = mood;
+    function handleMoodDetection(message) {
+        console.log(`[Webview] Mood detected: ${message.mood} (${message.confidence})`);
+        
+        currentMood = message.mood;
+        moodConfidence = message.confidence;
+        
+        currentMoodDisplay.textContent = message.mood;
         moodConfidenceSection.style.display = 'block';
-        confidenceBar.style.width = `${Math.round(confidence * 100)}%`;
-        if (confidence >= 0.6) analyzeBtn.disabled = false;
+        confidenceBar.style.width = `${Math.round(message.confidence * 100)}%`;
+        
+        // Enable analyze button if confidence is high enough
+        if (message.confidence >= 0.6) {
+            analyzeBtn.disabled = false;
+        }
+        
+        // Enable the Generate Future Mood button if we have an image
+        if (message.hasImage) {
+            const generateFutureMoodBtn = document.getElementById('generate-future-mood-btn');
+            if (generateFutureMoodBtn) {
+                generateFutureMoodBtn.disabled = false;
+                console.log('[Webview] Enabling Generate Future Mood button');
+            } else {
+                console.error('[Webview] Could not find generate-future-mood-btn element');
+            }
+        } else {
+            console.log('[Webview] No image detected, future mood button remains disabled');
+        }
+        
+        updateStatus('ready', `Mood detected: ${message.mood}`);
     }
 
     function predictFutureMood() {
@@ -116,6 +141,29 @@
         vscode.postMessage({ 
             command: 'predictFutureMood',
             currentMood: currentMood || 'neutral'
+        });
+    }
+
+    function generateFutureMood() {
+        if (!currentMood) {
+            console.log('[Webview] No mood detected, cannot generate future mood');
+            updateStatus('error', 'Please detect your mood first');
+            return;
+        }
+        
+        const generateFutureMoodBtn = document.getElementById('generate-future-mood-btn');
+        if (generateFutureMoodBtn && generateFutureMoodBtn.disabled) {
+            console.log('[Webview] Generate future mood button is disabled, ignoring click');
+            updateStatus('error', 'Please upload your image with Go with mood debug first');
+            return;
+        }
+        
+        console.log(`[Webview] Generating future mood for: ${currentMood}`);
+        updateStatus('busy', `Launching future mood generation for ${currentMood}...`);
+        
+        vscode.postMessage({
+            command: 'generateFutureMood',
+            currentMood: currentMood
         });
     }
 
@@ -137,6 +185,71 @@
         if (message.confidence && moodConfidenceSection) {
             moodConfidenceSection.style.display = 'block';
             confidenceBar.style.width = `${Math.round(message.confidence * 100)}%`;
+        }
+    }
+
+    function handleFutureMoodGeneration(message) {
+        if (message.error) {
+            updateStatus('', `Error: ${message.error}`);
+            return;
+        }
+        
+        updateStatus('ready', 'Future mood visualization generated!');
+        
+        // If we have an image URL to display
+        if (message.imageUrl) {
+            // Create or get a container for the generated image
+            let container = document.getElementById('generated-mood-container');
+            if (!container) {
+                container = document.createElement('div');
+                container.id = 'generated-mood-container';
+                container.style.textAlign = 'center';
+                container.style.marginTop = '20px';
+                container.style.padding = '10px';
+                container.style.backgroundColor = 'rgba(0,0,0,0.05)';
+                container.style.borderRadius = '8px';
+                document.querySelector('.mood-status').after(container);
+            }
+            
+            // Create title
+            if (!document.getElementById('generated-mood-title')) {
+                const title = document.createElement('h3');
+                title.id = 'generated-mood-title';
+                title.textContent = 'Your Future Mood Visualization';
+                container.appendChild(title);
+            }
+            
+            // Create or update image
+            let img = document.getElementById('generated-mood-image');
+            if (!img) {
+                img = document.createElement('img');
+                img.id = 'generated-mood-image';
+                img.style.maxWidth = '100%';
+                img.style.maxHeight = '300px';
+                img.style.borderRadius = '4px';
+                img.style.boxShadow = '0 4px 8px rgba(0,0,0,0.1)';
+                container.appendChild(img);
+            }
+            
+            // Set the image source
+            img.src = message.imageUrl;
+            img.alt = `Generated visualization for ${message.mood || 'future'} mood`;
+            
+            // Add caption if provided
+            if (message.caption) {
+                let caption = document.getElementById('generated-mood-caption');
+                if (!caption) {
+                    caption = document.createElement('p');
+                    caption.id = 'generated-mood-caption';
+                    caption.style.marginTop = '10px';
+                    caption.style.fontStyle = 'italic';
+                    container.appendChild(caption);
+                }
+                caption.textContent = message.caption;
+            }
+            
+            // Make sure the container is visible
+            container.style.display = 'block';
         }
     }
 
@@ -192,12 +305,19 @@
     }
 
     function initialize() {
-        console.log('[Webview] Initializing');
+        // ...existing code...
+        
+        // Generate Future Mood button
+        const generateFutureMoodBtn = document.getElementById('generate-future-mood-btn');
+        if (generateFutureMoodBtn) {
+            generateFutureMoodBtn.addEventListener('click', generateFutureMood);
+        }
+
+        // Set up all event listeners
         setupEventListeners();
-        updateStatus('', 'Click "Go with mood debug" to enable external camera');
-        vscode.postMessage({ command: 'webviewReady' });
     }
 
+    // Check if the document is already loaded
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', initialize);
     } else {
