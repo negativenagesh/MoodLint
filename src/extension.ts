@@ -263,9 +263,7 @@ async function generateFutureMoodVisualization(currentMood: string) {
         vscode.window.showInformationMessage('Launching future mood generator...');
         
         // Launch the GAN popup
-        const pythonPath = '/home/subrahmanya/projects/MoodLint/.venv/bin/python';  // Use the virtual env if possible
-        const scriptPath = path.join(context.extensionPath, 'popup', 'gan_popup.py');
-        
+        const pythonPath = path.join(context.extensionPath, '.venv', 'bin', 'python');        const scriptPath = path.join(context.extensionPath, 'popup', 'gan_popup.py');
         console.log(`[Extension] Starting GAN popup for mood: ${currentMood} using image: ${capturedImagePath}`);
         
         // Make sure the script is executable
@@ -277,7 +275,6 @@ async function generateFutureMoodVisualization(currentMood: string) {
         
         // Get a temporary file path for the output image
         const outputImagePath = path.join(os.tmpdir(), `moodlint_gan_${Date.now()}.png`);
-        
         // Launch the GAN popup process
         const ganProcess = childProcess.spawn(pythonPath, [scriptPath, capturedImagePath, currentMood, outputImagePath], {
             env: { 
