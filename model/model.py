@@ -119,7 +119,6 @@ except Exception as e:
 class ExpressionRecognitionModel(nn.Module):
     def __init__(self, num_classes=5):  # Updated to 5 classes
         super(ExpressionRecognitionModel, self).__init__()
-        # Load pre-trained ResNet50 instead of VGG16
         self.backbone = models.resnet50(weights='IMAGENET1K_V2')
 
         # Freeze early layers
@@ -131,7 +130,6 @@ class ExpressionRecognitionModel(nn.Module):
         num_ftrs = self.backbone.fc.in_features
         self.backbone.fc = nn.Identity()
 
-        # Custom classifier with dropout and batch normalization
         self.classifier = nn.Sequential(
             nn.Linear(num_ftrs, 1024),
             nn.BatchNorm1d(1024),
