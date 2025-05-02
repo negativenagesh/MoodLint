@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import os
 import sys
 import json
@@ -8,8 +7,8 @@ import subprocess
 import traceback
 import time
 from PIL import Image, ImageTk
+from math import sin, pi
 
-# First check for tkinter and show a clear error if it's missing
 try:
     import tkinter as tk
     from tkinter import ttk
@@ -18,7 +17,6 @@ except ImportError:
     print(json.dumps({"error": "Tkinter modules not available. Please install python3-tk"}), flush=True)
     sys.exit(1)
 
-# Now try to import PIL
 try:
     from PIL import Image, ImageTk
     HAS_PIL_TK = True
@@ -29,11 +27,185 @@ except ImportError:
 # Send startup message so extension knows we're running
 print(json.dumps({"status": "starting", "gui": "initializing"}), flush=True)
 
+# Define a color theme
+COLORS = {
+    "bg": "#f5f5f7",
+    "primary": "#4a6fa5",
+    "secondary": "#335c81",
+    "accent": "#1e3a5f",
+    "text": "#333333",
+    "light_text": "#666666",
+    "error": "#b23b3b",
+    "success": "#32965d",
+    "neutral": "#9b9b9b",
+    # Mood-specific colors
+    "happy": "#f4d03f",
+    "sad": "#5dade2",
+    "angry": "#e74c3c",
+    "surprise": "#9b59b6",
+    "neutral_mood": "#7f8c8d"
+}
+
+class AnimatedProgressBar(ttk.Frame):
+    """Custom animated progress bar with gradient effect"""
+    def __init__(self, master, **kwargs):
+        super().__init__(master, **kwargs)
+        self.config(height=20)
+        
+        self.canvas = tk.Canvas(self, height=10, bd=0, highlightthickness=0, bg=COLORS["bg"])
+        self.canvas.pack(fill=tk.X, expand=True, padx=2, pady=2)
+        
+        self.progress = 0
+        self.is_running = False
+        self.pulse_size = 0.2  # Size of the moving pulse as a fraction of the width
+        
+        # Create the base progress bar (gray background)
+        self.base_rect = self.canvas.create_rectangle(0, 0, 0, 10, fill="#e0e0e0", width=0)
+        
+        # Create the progress rectangle
+        self.rect = self.canvas.create_rectangle(0, 0, 0, 10, fill=COLORS["primary"], width=0)
+        self.highlight = self.canvas.create_rectangle(0, 0, 0, 10, fill=COLORS["accent"], width=0, stipple="gray50")
+        
+        # Bind resize event
+        self.canvas.bind("<Configure>", self._on_resize)
+        
+    def _on_resize(self, event):
+        """Handle resize events"""
+        width = event.width
+        self.canvas.coords(self.base_rect, 0, 0, width, 10)
+        self._update_progress()
+        
+    def _update_progress(self):
+        """Update the progress bar visuals"""
+        width = self.canvas.winfo_width()
+        progress_width = int(width * self.progress)
+        
+        # Update main progress bar
+        self.canvas.coords(self.rect, 0, 0, progress_width, 10)
+        
+        # Calculate highlight position for animation
+        if self.is_running:
+            pulse_width = int(width * self.pulse_size)
+            pulse_pos = (self.animation_counter % 100) / 100 * (width - pulse_width)
+            self.canvas.coords(self.highlight, pulse_pos, 0, pulse_pos + pulse_width, 10)
+            self.canvas.itemconfig(self.highlight, state="normal")
+        else:
+            self.canvas.itemconfig(self.highlight, state="hidden")
+    
+    def start(self):
+        """Start the indeterminate animation"""
+        self.is_running = True
+        self.animation_counter = 0
+        self._animate()
+    
+    def stop(self):
+        """Stop the animation"""
+        self.is_running = False
+        self.canvas.itemconfig(self.highlight, state="hidden")
+    
+    def _animate(self):
+        """Animate the progress bar"""
+        if not self.is_running:
+            return
+            
+        self.animation_counter += 3
+        self._update_progress()
+        self.after(50, self._animate)
+    
+    def set_progress(self, value):
+        """Set the progress value (0.0 to 1.0)"""
+        self.progress = min(1.0, max(0.0, value))
+        self._update_progress()
+        
+        # Change color based on progress
+        if self.progress > 0.7:
+            self.canvas.itemconfig(self.rect, fill=COLORS["success"])
+        elif self.progress > 0.4:
+            self.canvas.itemconfig(self.rect, fill=COLORS["primary"])
+        else:
+            self.canvas.itemconfig(self.rect, fill=COLORS["sad"])
+
+class ImageSequenceFrame(ttk.LabelFrame):
+    """Custom frame for displaying the image sequence with animations"""
+    def __init__(self, master, **kwargs):
+        super().__init__(master, **kwargs)
+        
+        # Create the frame for the images
+        self.images_frame = ttk.Frame(self)
+        self.images_frame.pack(fill=tk.X, expand=True, padx=10, pady=10)
+        
+        # Create labeled images
+        self.image_frames = []
+        self.canvases = []
+        self.image_refs = []  # Keep references to images
+        
+        for i in range(5):
+            frame = ttk.Frame(self.images_frame)
+            frame.grid(row=0, column=i, padx=10)
+            
+            # Canvas for the image
+            canvas = tk.Canvas(frame, width=120, height=120, bd=0, highlightthickness=1,
+                              highlightbackground=COLORS["neutral"])
+            canvas.pack()
+            
+            # Label with timestamp
+            label = ttk.Label(frame, text=f"T-{5-i}", font=("Arial", 9))
+            label.pack(pady=(5, 0))
+            
+            self.image_frames.append(frame)
+            self.canvases.append(canvas)
+            
+    def set_images(self, image_paths):
+        """Set the sequence of images with a fade-in effect"""
+        self.image_refs = []  # Clear old references
+        
+        # Calculate number of empty slots to fill
+        num_images = len(image_paths) if image_paths else 0
+        num_empty = max(0, 5 - num_images)
+        
+        # Clear canvases
+        for canvas in self.canvases:
+            canvas.delete("all")
+            
+        # Add empty placeholders if needed
+        for i in range(num_empty):
+            self.canvases[i].create_rectangle(5, 5, 115, 115, fill="#f0f0f0", outline="")
+            self.canvases[i].create_text(60, 60, text="No Data", fill=COLORS["light_text"])
+            
+        # Add actual images
+        if image_paths:
+            for i, path in enumerate(image_paths):
+                canvas_idx = i + num_empty
+                if path and os.path.exists(path):
+                    try:
+                        # Load and resize image
+                        img = Image.open(path).convert('RGB')
+                        img = img.resize((110, 110), Image.LANCZOS)
+                        
+                        # Create photo image and keep reference
+                        photo = ImageTk.PhotoImage(img)
+                        self.image_refs.append(photo)
+                        
+                        # Display with decorative border
+                        self.canvases[canvas_idx].create_rectangle(4, 4, 116, 116, 
+                                                                 outline=COLORS["accent"], width=2)
+                        self.canvases[canvas_idx].create_image(60, 60, image=photo)
+                    except Exception as e:
+                        self.canvases[canvas_idx].create_rectangle(5, 5, 115, 115, fill="#fff0f0", outline="")
+                        self.canvases[canvas_idx].create_text(60, 60, text="Error", fill=COLORS["error"])
+                else:
+                    self.canvases[canvas_idx].create_rectangle(5, 5, 115, 115, fill="#f0f0f0", outline="")
+                    self.canvases[canvas_idx].create_text(60, 60, text="Missing", fill=COLORS["light_text"])
+
 class MoodPredictionApp:
     def __init__(self, root, image_dir=None):
         self.root = root
         self.root.title("MoodLint Future Mood Prediction")
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        
+        # Configure the app to use the color theme
+        self.style = ttk.Style()
+        self.configure_style()
         
         # Make window appear on top initially
         self.root.attributes('-topmost', True)
@@ -41,14 +213,14 @@ class MoodPredictionApp:
         self.root.attributes('-topmost', False)
         
         # Set window size and position
-        self.root.geometry("700x550")
+        self.root.geometry("800x600")
         self.root.resizable(False, False)
         
         # Center window on screen
         screen_width = self.root.winfo_screenwidth()
         screen_height = self.root.winfo_screenheight()
-        x = (screen_width - 700) // 2
-        y = (screen_height - 550) // 2
+        x = (screen_width - 800) // 2
+        y = (screen_height - 600) // 2
         self.root.geometry(f"+{x}+{y}")
         
         # Image directory (containing recent mood captures)
@@ -62,6 +234,37 @@ class MoodPredictionApp:
         
         # Tell extension we've initialized
         print(json.dumps({"status": "ready", "gui": "tkinter"}), flush=True)
+    
+    def configure_style(self):
+        """Configure the ttk style with our custom theme"""
+        self.root.configure(bg=COLORS["bg"])
+        
+        # Try to use a modern theme as base
+        try:
+            self.style.theme_use('clam')
+        except:
+            pass
+        
+        # Configure frame styles
+        self.style.configure('TFrame', background=COLORS["bg"])
+        self.style.configure('TLabelframe', background=COLORS["bg"])
+        self.style.configure('TLabelframe.Label', background=COLORS["bg"], foreground=COLORS["text"], font=('Arial', 12, 'bold'))
+        
+        # Configure label styles
+        self.style.configure('TLabel', background=COLORS["bg"], foreground=COLORS["text"], font=('Arial', 11))
+        self.style.configure('Header.TLabel', font=('Arial', 18, 'bold'), foreground=COLORS["accent"])
+        self.style.configure('Subheader.TLabel', font=('Arial', 12), foreground=COLORS["secondary"])
+        self.style.configure('Result.TLabel', font=('Arial', 16, 'bold'), foreground=COLORS["primary"])
+        
+        # Configure button styles
+        self.style.configure('TButton', font=('Arial', 11))
+        self.style.configure('Primary.TButton', background=COLORS["primary"], foreground="white")
+        
+        # Configure progress bar styles
+        self.style.configure("Horizontal.TProgressbar", 
+                            background=COLORS["primary"],
+                            troughcolor=COLORS["bg"],
+                            borderwidth=0)
         
     def setup_ui(self):
         # Create main frame with padding
@@ -72,34 +275,31 @@ class MoodPredictionApp:
         header_frame = ttk.Frame(main_frame)
         header_frame.pack(fill=tk.X, pady=(0, 20))
         ttk.Label(header_frame, text="Future Mood Prediction", 
-                 font=("Arial", 18, "bold")).pack()
-        ttk.Label(header_frame, text="Using LSTM sequence model to predict your next mood").pack()
+                 style='Header.TLabel').pack()
+        ttk.Label(header_frame, text="Using LSTM sequence model to predict your next mood",
+                 style='Subheader.TLabel').pack()
         
         # Sequence images frame
-        sequence_frame = ttk.LabelFrame(main_frame, text="Your Recent Mood Sequence")
-        sequence_frame.pack(fill=tk.X, padx=5, pady=10)
-        
-        # Sequence images canvas (horizontal scrolling)
-        self.sequence_canvas_frame = ttk.Frame(sequence_frame)
-        self.sequence_canvas_frame.pack(fill=tk.X, pady=10)
-        
-        # Create 5 small canvases for the sequence
-        self.sequence_canvases = []
-        for i in range(5):
-            canvas = tk.Canvas(self.sequence_canvas_frame, width=100, height=100, bg="black")
-            canvas.grid(row=0, column=i, padx=5)
-            canvas.create_text(50, 50, text=f"Image {i+1}", fill="white", font=("Arial", 10))
-            self.sequence_canvases.append(canvas)
+        self.sequence_frame = ImageSequenceFrame(main_frame, text="Your Recent Mood Sequence")
+        self.sequence_frame.pack(fill=tk.X, padx=5, pady=10)
             
         # Prediction result frame
         result_frame = ttk.LabelFrame(main_frame, text="Predicted Future Mood")
         result_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=10)
         
         # Prediction result
+        result_inner_frame = ttk.Frame(result_frame)
+        result_inner_frame.pack(fill=tk.X, pady=20, padx=20)
+        
+        self.mood_icon_canvas = tk.Canvas(result_inner_frame, width=64, height=64, 
+                                        bg=COLORS["bg"], highlightthickness=0)
+        self.mood_icon_canvas.pack(side=tk.LEFT, padx=(0, 15))
+        self.draw_neutral_face(self.mood_icon_canvas)
+        
         self.result_text = tk.StringVar(value="Analyzing your mood sequence...")
-        result_label = ttk.Label(result_frame, textvariable=self.result_text, 
-                               font=("Arial", 16))
-        result_label.pack(pady=20)
+        result_label = ttk.Label(result_inner_frame, textvariable=self.result_text, 
+                               style='Result.TLabel')
+        result_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
         
         # Confidence bar
         confidence_frame = ttk.Frame(result_frame)
@@ -107,18 +307,18 @@ class MoodPredictionApp:
         
         ttk.Label(confidence_frame, text="Prediction Confidence:").pack(anchor=tk.W)
         
-        confidence_bar_frame = ttk.Frame(confidence_frame)
-        confidence_bar_frame.pack(fill=tk.X, pady=5)
-        
-        self.confidence_bar = ttk.Progressbar(confidence_bar_frame, length=600)
-        self.confidence_bar.pack(fill=tk.X)
+        self.confidence_bar = AnimatedProgressBar(confidence_frame)
+        self.confidence_bar.pack(fill=tk.X, pady=5)
+        self.confidence_bar.set_progress(0.1)
+        self.confidence_bar.start()
         
         # Details text
         explanation_frame = ttk.Frame(result_frame)
         explanation_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
         
         self.explanation_text = tk.Text(explanation_frame, height=6, wrap=tk.WORD, 
-                                     font=("Arial", 12))
+                                     font=("Arial", 12), borderwidth=1, relief="solid",
+                                     padx=10, pady=10)
         self.explanation_text.pack(fill=tk.BOTH, expand=True)
         self.explanation_text.insert(tk.END, "Analyzing your mood pattern from recent captures...\n\n"
                                    "The LSTM neural network is examining your sequence of emotions "
@@ -130,8 +330,8 @@ class MoodPredictionApp:
         status_frame = ttk.Frame(main_frame)
         status_frame.pack(fill=tk.X, pady=5)
         
-        self.progress = ttk.Progressbar(status_frame, orient="horizontal", length=660, mode="indeterminate")
-        self.progress.pack(pady=5)
+        self.progress = AnimatedProgressBar(status_frame)
+        self.progress.pack(pady=5, fill=tk.X)
         self.progress.start()
         
         self.status = ttk.Label(status_frame, textvariable=self.status_var)
@@ -141,7 +341,7 @@ class MoodPredictionApp:
         button_frame = ttk.Frame(main_frame)
         button_frame.pack(pady=10)
         
-        ttk.Button(button_frame, text="Close", command=self.on_closing).pack()
+        ttk.Button(button_frame, text="Close", command=self.on_closing, style='Primary.TButton').pack()
     
     def predict_mood(self):
         """Run the lstm_popup.py script to predict the next mood"""
@@ -235,27 +435,8 @@ class MoodPredictionApp:
             # Get the most recent 5 (or fewer if we don't have 5)
             sequence_images = image_files[-5:] if len(image_files) >= 5 else image_files
             
-            # Add placeholders if we don't have 5 images
-            while len(sequence_images) < 5:
-                sequence_images.insert(0, None)
-            
-            # Display the images
-            self.image_references = []  # Keep references to prevent garbage collection
-            for i, img_path in enumerate(sequence_images):
-                if img_path:
-                    try:
-                        img = Image.open(img_path)
-                        img = img.resize((100, 100), Image.LANCZOS)
-                        photo = ImageTk.PhotoImage(img)
-                        self.image_references.append(photo)
-                        
-                        # Clear canvas and display image
-                        self.sequence_canvases[i].delete("all")
-                        self.sequence_canvases[i].create_image(50, 50, image=photo)
-                    except Exception as e:
-                        print(json.dumps({"error": f"Error loading image {img_path}: {str(e)}"}), flush=True)
-                        self.sequence_canvases[i].delete("all")
-                        self.sequence_canvases[i].create_text(50, 50, text="Error", fill="red")
+            # Display images in the sequence frame
+            self.sequence_frame.set_images(sequence_images)
             
         except Exception as e:
             print(json.dumps({"error": f"Error displaying image sequence: {str(e)}"}), flush=True)
@@ -274,7 +455,10 @@ class MoodPredictionApp:
         self.result_text.set(f"Your future mood: {mood.upper()}")
         
         # Update confidence bar
-        self.confidence_bar["value"] = confidence * 100
+        self.confidence_bar.set_progress(confidence)
+        
+        # Update mood icon
+        self.draw_mood_icon(mood.lower())
         
         # Update explanation text
         self.explanation_text.config(state=tk.NORMAL)
@@ -296,6 +480,68 @@ class MoodPredictionApp:
             "confidence": confidence,
             "message": message
         }), flush=True)
+    
+    def draw_mood_icon(self, mood):
+        """Draw a mood icon based on the predicted mood"""
+        canvas = self.mood_icon_canvas
+        canvas.delete("all")
+        
+        # Get mood color
+        color = COLORS.get(mood, COLORS["neutral_mood"])
+        
+        # Draw face background circle
+        canvas.create_oval(5, 5, 59, 59, fill=color, outline=COLORS["secondary"], width=2)
+        
+        if mood == "happy":
+            # Draw happy face (smile)
+            canvas.create_arc(15, 20, 49, 54, start=0, extent=-180, style="arc", width=3, outline="black")
+            # Eyes
+            canvas.create_oval(20, 20, 26, 26, fill="black")
+            canvas.create_oval(38, 20, 44, 26, fill="black")
+        elif mood == "sad":
+            # Draw sad face (frown)
+            canvas.create_arc(15, 35, 49, 55, start=0, extent=180, style="arc", width=3, outline="black")
+            # Eyes
+            canvas.create_oval(20, 20, 26, 26, fill="black")
+            canvas.create_oval(38, 20, 44, 26, fill="black")
+        elif mood == "angry":
+            # Draw angry face
+            canvas.create_arc(15, 35, 49, 55, start=0, extent=180, style="arc", width=3, outline="black")
+            # Eyebrows
+            canvas.create_line(15, 15, 25, 20, width=3, fill="black")
+            canvas.create_line(49, 15, 39, 20, width=3, fill="black")
+            # Eyes
+            canvas.create_oval(20, 23, 26, 29, fill="black")
+            canvas.create_oval(38, 23, 44, 29, fill="black")
+        elif mood == "surprise":
+            # Draw surprised face (O mouth)
+            canvas.create_oval(25, 35, 39, 49, fill="black")
+            # Eyes
+            canvas.create_oval(20, 20, 26, 26, fill="black")
+            canvas.create_oval(38, 20, 44, 26, fill="black")
+            # Raised eyebrows
+            canvas.create_line(15, 13, 25, 16, width=2, fill="black")
+            canvas.create_line(49, 13, 39, 16, width=2, fill="black")
+        else:
+            # Draw neutral face (straight line)
+            canvas.create_line(20, 40, 44, 40, width=3, fill="black")
+            # Eyes
+            canvas.create_oval(20, 20, 26, 26, fill="black")
+            canvas.create_oval(38, 20, 44, 26, fill="black")
+    
+    def draw_neutral_face(self, canvas):
+        """Draw a neutral face for initial state"""
+        canvas.delete("all")
+        
+        # Draw face background circle
+        canvas.create_oval(5, 5, 59, 59, fill=COLORS["neutral_mood"], outline=COLORS["secondary"], width=2)
+        
+        # Draw neutral face (straight line)
+        canvas.create_line(20, 40, 44, 40, width=3, fill="black")
+        
+        # Eyes
+        canvas.create_oval(20, 20, 26, 26, fill="black")
+        canvas.create_oval(38, 20, 44, 26, fill="black")
     
     def get_mood_explanation(self, mood):
         """Get a detailed explanation for the predicted mood"""
@@ -331,6 +577,14 @@ class MoodPredictionApp:
         self.progress.stop()
         self.status_var.set(f"Error: {error_message}")
         
+        # Update result text
+        self.result_text.set("Prediction Error")
+        
+        # Draw error icon
+        self.mood_icon_canvas.delete("all")
+        self.mood_icon_canvas.create_oval(5, 5, 59, 59, fill="#ffeeee", outline=COLORS["error"], width=2)
+        self.mood_icon_canvas.create_text(32, 32, text="!", font=("Arial", 24, "bold"), fill=COLORS["error"])
+        
         # Update explanation text
         self.explanation_text.config(state=tk.NORMAL)
         self.explanation_text.delete(1.0, tk.END)
@@ -358,13 +612,6 @@ if __name__ == "__main__":
     try:
         # Create the main window
         root = tk.Tk()
-        
-        # Set theme
-        style = ttk.Style()
-        try:
-            style.theme_use('clam')  # Use a modern theme
-        except:
-            pass  # Fall back to default theme if 'clam' is not available
         
         # Create application
         app = MoodPredictionApp(root, image_dir)
