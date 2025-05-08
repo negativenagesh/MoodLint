@@ -8,14 +8,13 @@
 </div>
 </div>
 
-<div align="center">
-
-![GitHub stars](https://img.shields.io/github/stars/negativenagesh/MoodLint?style=social)
-![GitHub watchers](https://img.shields.io/github/watchers/negativenagesh/MoodLint?style=social)
-![GitHub forks](https://img.shields.io/github/forks/negativenagesh/MoodLint?style=social)
-![GitHub license](https://img.shields.io/github/license/negativenagesh/MoodLint)
-
-</div>
+<p align="center">
+    <a href="https://github.com/negativenagesh/QueryQuack/stargazers"><img src="https://img.shields.io/github/stars/negativenagesh/MoodLint" alt="Stars Badge"/></a>
+    <a href="https://github.com/negativenagesh/Resumai/network/members"><img src="https://img.shields.io/github/forks/negativenagesh/MoodLint" alt="Forks Badge"/></a>
+    <a href="https://github.com/negativenagesh/Resumai/pulls"><img src="https://img.shields.io/github/issues-pr/negativenagesh/MoodLint" alt="Pull Requests Badge"/></a>
+    <a href="https://github.com/negativenagesh/Resumai/issues"><img src="https://img.shields.io/github/issues/negativenagesh/MoodLint" alt="Issues Badge"/></a>
+    <a href="https://github.com/negativenagesh/Resumai/blob/main/LICENSE"><img src="https://img.shields.io/github/license/negativenagesh/MoodLint" alt="License Badge"/></a>
+</p>
 
 MoodLint is a Visual Studio Code extension designed to enhance the debugging experience by integrating real-time emotion analysis with tailored debugging suggestions and your future mood prediction, with generating how you would look in that mood. But why is such a tool necessary? Research, such as the study "Do Moods Affect Programmers’ Debug Performance?" by Khan, Brinkman, and Hierons (2011), provides compelling evidence that programmers’ emotional states significantly influence their debugging performance. So mood-based debugging tool like MoodLint addresses this critical need for developers.
 
