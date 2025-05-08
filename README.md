@@ -2,7 +2,7 @@
 
 <div align="center">
     <img src="MoodLint-logo/cover.png" alt="UnFake Logo" style="width: 700px; height: 300px;">
-<p>Emotion-Based Debugging Extension for Visual Studio Code</p>
+<p>Mood Based Debugging Extension for Visual Studio Code</p>
 
 </div>
 </div>
