@@ -8,7 +8,11 @@
 </div>
 
 <p align="center">
-    <img src="https://github-readme-stats.vercel.app/api/pin/?username=negativenagesh&repo=MoodLint" alt="MoodLint Stats"/>
+    <a href="https://github.com/negativenagesh/MoodLint/stargazers"><img src="https://img.shields.io/github/stars/negativenagesh/MoodLint" alt="Stars Badge"/></a>
+    <a href="https://github.com/negativenagesh/MoodLint/network/members"><img src="https://img.shields.io/github/forks/negativenagesh/MoodLint" alt="Forks Badge"/></a>
+    <a href="https://github.com/negativenagesh/MoodLint/pulls"><img src="https://img.shields.io/github/issues-pr/negativenagesh/MoodLint" alt="Pull Requests Badge"/></a>
+    <a href="https://github.com/negativenagesh/MoodLint/issues"><img src="https://img.shields.io/github/issues/negativenagesh/MoodLint" alt="Issues Badge"/></a>
+    <a href="https://github.com/negativenagesh/MoodLint/blob/main/LICENSE"><img src="https://img.shields.io/github/license/negativenagesh/MoodLint" alt="License Badge"/></a>
 </p>
 
 MoodLint is a Visual Studio Code extension designed to enhance the debugging experience by integrating real-time emotion analysis with tailored debugging suggestions and your future mood prediction, with generating how you would look in that mood. But why is such a tool necessary? Research, such as the study "Do Moods Affect Programmers’ Debug Performance?" by Khan, Brinkman, and Hierons (2011), provides compelling evidence that programmers’ emotional states significantly influence their debugging performance. So mood-based debugging tool like MoodLint addresses this critical need for developers.
