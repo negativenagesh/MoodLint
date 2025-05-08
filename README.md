@@ -16,7 +16,7 @@
 ![GitHub license](https://img.shields.io/github/license/negativenagesh/MoodLint)
 </div>
 
-MoodLint is a Visual Studio Code extension designed to enhance the debugging experience by integrating real-time emotion analysis with tailored debugging suggestions and your future mood prediction, with generating how you would look in that mood. But why is such a tool necessary? Research, such as the study "Do Moods Affect Programmers’ Debug Performance?" by Khan, Brinkman, and Hierons (2011), provides compelling evidence that programmers’ emotional states significantly influence their debugging performance. Below, we explore this connection and explain why a mood-based debugging tool like MoodLint addresses a critical need for developers.
+MoodLint is a Visual Studio Code extension designed to enhance the debugging experience by integrating real-time emotion analysis with tailored debugging suggestions and your future mood prediction, with generating how you would look in that mood. But why is such a tool necessary? Research, such as the study "Do Moods Affect Programmers’ Debug Performance?" by Khan, Brinkman, and Hierons (2011), provides compelling evidence that programmers’ emotional states significantly influence their debugging performance. So mood-based debugging tool like MoodLint addresses this critical need for developers.
 
 <div align="center">
   <img src="demo/demo.gif" alt="Moodlint Demo" width="800s">
@@ -29,6 +29,51 @@ Debugging is a critical part of software development, requiring intense focus, p
 Negative Moods and Cognitive Impact: When a programmer is in a bad mood, such as feeling frustrated after hours of chasing a bug, their ability to concentrate may diminish. Stress or anxiety can lead to tunnel vision, where they fixate on a single approach (even if it’s ineffective) or overlook obvious solutions. For example, a stressed programmer might repeatedly tweak the same section of code without stepping back to consider the broader system, prolonging the debugging process.
 Positive Moods and Creativity: Conversely, a positive or calm mood can enhance creativity and flexibility. A programmer who feels relaxed or confident might approach a bug with fresh perspectives, experimenting with alternative solutions or spotting patterns that a frustrated programmer might miss. This suggests that mood doesn’t just affect speed—it can influence the quality of the debugging outcome.
 Emotional Fatigue: Debugging often involves dealing with complex, elusive problems that can wear down a programmer over time. Emotional fatigue from prolonged debugging sessions can reduce attention to detail, increasing the likelihood of errors or incomplete fixes. Recognizing mood could help mitigate this by prompting breaks or adjustments in approach.
+
+## Requirements
+
+To harness MoodLint’s full potential, ensure your environment meets the following prerequisites.
+
+- **Visual Studio Code**
+  - **Version**: 1.60.0 or higher for compatibility with MoodLint’s features.
+  - **Installation**: Download from [code.visualstudio.com](https://code.visualstudio.com/) and verify with `code --version`.
+
+- **Node.js**
+  - **Version**: 14.x or later, required for extension development and runtime.
+  - **Installation**: Install from [nodejs.org](https://nodejs.org/), then confirm with `node -v`.
+
+- **Python**
+  - **Version**: 3.8 or later, essential for the local Python server powering emotion detection and GAN generation.
+  - **Installation**: Get it from [python.org](https://www.python.org/), ensuring `pip` is included. Verify with `python --version` or `python3 --version`.
+
+- **Dependencies**
+
+  1. **Star and Clone the repository:**
+    ```zsh
+    git clone https://github.com/negativenagesh/MoodLint.git
+    cd MoodLint
+    ```
+  2. **Create a venv:**
+    ```zsh
+    python3 -m venv .venv
+    ```
+  3. **Setup**: Navigate to the `MOODLINT` root folder and run
+    ```zsh
+    npm install
+    ```
+  to install Node.js dependencies, populating the `node_modules` folder. For Python dependencies, install the following:
+
+  4. **Install required packages:**
+    ```zsh
+    pip install -r pkgs.txt
+    ```
+  5. **Build MoodLint:**
+    ```txt
+    press F5 or Fn+F5 to run ths extension
+    ```
+  6. **Open MoodLint:**
+    ```txt
+    press Ctrl+Shift+P and search 'MoodLint' and hit enter to open the extesion like in the demo above
 
 ## The Link Between Mood and Debugging Performance
 
@@ -61,26 +106,14 @@ Based on the detected mood, MoodLint adjusts its debugging advice. For frustrate
 Why It’s Needed:
 Mood affects cognitive processes like reasoning and attention, which are critical for debugging. Frustrated programmers may miss obvious errors due to narrowed focus, while fatigued ones may lack the energy to trace complex logic. Tailored suggestions improve efficiency and reduce errors by aligning support with the programmer’s current state.
 
-3. Artistic Code Visualizations with GANs
+3. Mood prediction and Generation
 How It Works:
-MoodLint uses GANs (Generative Adversarial Networks) to create animated, artistic representations of code structure, making abstract concepts visually engaging.
+MoodLint uses LSTM and GANs to predict and create how you would look in predicted mood
 
 Why It’s Needed:
 Monotony can lower arousal and decrease performance. Visualizations help counter this by making debugging more stimulating and enjoyable. Positive moods are linked to increased creativity, enabling programmers to approach bugs with fresh perspectives.
 
-## Agent popup
-
-```zsh
-
-python3 popup/agent_popup.py <mood> [file_path] [query]
-
-python3 popup/agent_popup.py happy ./agents/workflow.py "How can I improve error handling?"
-
-```
-
 ## Features
-
-MoodLint redefines debugging and code comprehension by aligning technical assistance with your emotional state and visual learning preferences. Below are its core features, each accompanied by detailed descriptions and placeholders for illustrative screenshots:
 
 - **Emotion Detection**
   - **Description**: MoodLint employs Deep learning model to analyze your webcam feed or typing patterns, detecting emotions such as frustration, focus, or relaxation in real time. This feature forms the backbone of MoodLint's ability to adapt debugging support to your current mood.
@@ -94,71 +127,7 @@ MoodLint redefines debugging and code comprehension by aligning technical assist
 - **Integration with VSCode Debugger**
   - **Description**: MoodLint enhances VSCode’s native debugging tools by overlaying emotion-driven insights, such as highlighting error-prone areas when stress is detected, making debugging more intuitive and effective.
 
-- **Graph/Visualization Generation Using GAN**
-  - **Description**: MoodLint incorporates a GAN trained from scratch to generate artistic, animated visualizations of your code structure (e.g., flowcharts or abstract syntax trees). Users can trigger this feature with a button, receiving two unique, stylized graphs that enhance code comprehension. The GAN learns from artistic datasets, applying styles like impressionism or abstract patterns to static graphs parsed from your code.
+- **How you would look in predicted mood?**
+  - **Description**: MoodLint incorporates a GAN trained from scratch to generate user image on how he/she would look in predicted future mood. Users can trigger this feature with a button.
 
-## Requirements
-
-To harness MoodLint’s full potential, ensure your environment meets the following prerequisites. This section provides detailed installation and configuration steps:
-
-- **Visual Studio Code**
-  - **Version**: 1.60.0 or higher for compatibility with MoodLint’s features.
-  - **Installation**: Download from [code.visualstudio.com](https://code.visualstudio.com/) and verify with `code --version`.
-
-- **Node.js**
-  - **Version**: 14.x or later, required for extension development and runtime.
-  - **Installation**: Install from [nodejs.org](https://nodejs.org/), then confirm with `node -v`.
-
-- **Python**
-  - **Version**: 3.8 or later, essential for the local Python server powering emotion detection and GAN generation.
-  - **Installation**: Get it from [python.org](https://www.python.org/), ensuring `pip` is included. Verify with `python --version` or `python3 --version`.
-
-- **Dependencies**
-  - **Setup**: Navigate to the `MOODLINT` root folder and run `npm install` to install Node.js dependencies, populating the `node_modules` folder. For Python dependencies, install the following:
-
-    ```bash
-    pip install fastapi uvicorn opencv-python deepface tensorflow numpy pillow graphviz
-
-For example:
-
-This extension contributes the following settings:
-
-- `myExtension.enable`: Enable/disable this extension.
-- `myExtension.thing`: Set to `blah` to do something.
-
-## Release Notes
-
-### 1.0.0
-
-Initial release of ...
-
-### 1.0.1
-
-Fixed issue #.
-
-### 1.1.0
-
-Added features X, Y, and Z.
-
----
-
-## Following extension guidelines
-
-Ensure that you've read through the extensions guidelines and follow the best practices for creating your extension.
-
-- [Extension Guidelines](https://code.visualstudio.com/api/references/extension-guidelines)
-
-## Working with Markdown
-
-You can author your README using Visual Studio Code. Here are some useful editor keyboard shortcuts:
-
-- Split the editor (`Cmd+\` on macOS or `Ctrl+\` on Windows and Linux).
-- Toggle preview (`Shift+Cmd+V` on macOS or `Shift+Ctrl+V` on Windows and Linux).
-- Press `Ctrl+Space` (Windows, Linux, macOS) to see a list of Markdown snippets.
-
-## For more information
-
-- [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-- [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
-
-**Enjoy!**
+<div style=" border-radius: 10px; animation: fadeOutIn 2s infinite;"> <h2 style="color: #00d4ff;">License</h2> <p style="color: #b0b0b3;"> Resumai is licensed under the <a href="https://github.com/negativenagesh/MoodLint/blob/main/LICENSE">Apache License Version 2.0</a>. Feel free to use, modify, and share! ❤️ </p> </div>
