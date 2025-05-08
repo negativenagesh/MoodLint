@@ -9,11 +9,12 @@
 </div>
 
 <div align="center">
-  
+
 ![GitHub stars](https://img.shields.io/github/stars/negativenagesh/MoodLint?style=social)
 ![GitHub watchers](https://img.shields.io/github/watchers/negativenagesh/MoodLint?style=social)
 ![GitHub forks](https://img.shields.io/github/forks/negativenagesh/MoodLint?style=social)
 ![GitHub license](https://img.shields.io/github/license/negativenagesh/MoodLint)
+
 </div>
 
 MoodLint is a Visual Studio Code extension designed to enhance the debugging experience by integrating real-time emotion analysis with tailored debugging suggestions and your future mood prediction, with generating how you would look in that mood. But why is such a tool necessary? Research, such as the study "Do Moods Affect Programmers’ Debug Performance?" by Khan, Brinkman, and Hierons (2011), provides compelling evidence that programmers’ emotional states significantly influence their debugging performance. So mood-based debugging tool like MoodLint addresses this critical need for developers.
