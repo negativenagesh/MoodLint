@@ -6,7 +6,6 @@
 
 </div>
 </div>
-</div>
 
 <p align="center">
     <a href="https://github.com/negativenagesh/MoodLint/stargazers"><img src="https://img.shields.io/github/stars/negativenagesh/MoodLint" alt="Stars Badge"/></a>
