@@ -11,6 +11,13 @@ import re
 # Add parent directory to path so we can import from agents package
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Import DiffViewer - try relative import first, fall back to absolute
+try:
+    from .diff_viewer import DiffViewer
+except ImportError:
+    # If relative import fails (when run as script), use absolute import
+    from diff_viewer import DiffViewer
+
 # Load the API key from .env file directly
 def load_api_key_from_dotenv():
     """Load API key directly from .env file"""
@@ -21,11 +28,11 @@ def load_api_key_from_dotenv():
         try:
             with open(env_path, 'r') as file:
                 for line in file:
-                    # Look for GOOGLE_API_KEY=value
-                    match = re.match(r'^GOOGLE_API_KEY=(.+)$', line.strip())
+                    # Look for OPENAI_API_KEY=value
+                    match = re.match(r'^OPENAI_API_KEY=(.+)$', line.strip())
                     if match:
                         api_key = match.group(1)
-                        print(f"Loaded API key from .env file: {api_key[:4]}...{api_key[-4:]} (length: {len(api_key)})")
+                        print(f"Loaded API key from .env file: {api_key[:7]}...{api_key[-4:]} (length: {len(api_key)})")
                         break
         except Exception as e:
             print(f"Error reading .env file: {str(e)}")
@@ -33,7 +40,7 @@ def load_api_key_from_dotenv():
     return api_key
 
 # Get the API key before any class definition
-GOOGLE_API_KEY = load_api_key_from_dotenv() or os.environ.get("GOOGLE_API_KEY")
+OPENAI_API_KEY = load_api_key_from_dotenv() or os.environ.get("OPENAI_API_KEY")
 
 class AgentDebugApp:
     def __init__(self, root, mood, filename=None, code=None, query=None):
@@ -56,11 +63,11 @@ class AgentDebugApp:
             self.query_var.set(self.query)
         
         # Setup API key, using the global variable we loaded from .env
-        self.api_key = GOOGLE_API_KEY
+        self.api_key = OPENAI_API_KEY
         if not self.api_key:
-            print("WARNING: No Google API key found in .env file or environment variables")
+            print("WARNING: No OpenAI API key found in .env file or environment variables")
         else:
-            print(f"Using API key: {self.api_key[:4]}...{self.api_key[-4:]} (length: {len(self.api_key)})")
+            print(f"Using API key: {self.api_key[:7]}...{self.api_key[-4:]} (length: {len(self.api_key)})")
         
         # Initialize copy_button as None before setup_window
         self.copy_button = None
@@ -129,16 +136,20 @@ class AgentDebugApp:
         
         # File path entry and browse button
         ttk.Label(file_frame, text="File:").grid(row=0, column=0, sticky=tk.W, padx=(0, 5))
-        ttk.Entry(file_frame, textvariable=self.file_path_var, width=60).grid(row=0, column=1, padx=5, sticky=tk.EW)
+        file_entry = tk.Entry(file_frame, textvariable=self.file_path_var, width=60, 
+                              insertbackground="#000000", insertwidth=2)
+        file_entry.grid(row=0, column=1, padx=5, sticky=tk.EW)
         ttk.Button(file_frame, text="Browse", command=self.browse_file).grid(row=0, column=2, padx=5)
         
         # Query frame
         query_frame = ttk.LabelFrame(main_frame, text="Query (Optional)", padding="10")
         query_frame.pack(fill=tk.X, pady=(10, 0))
         
-        # Query entry
+        # Query entry with visible cursor bar
         ttk.Label(query_frame, text="Query:").grid(row=0, column=0, sticky=tk.W, padx=(0, 5))
-        ttk.Entry(query_frame, textvariable=self.query_var, width=60).grid(row=0, column=1, padx=5, sticky=tk.EW)
+        query_entry = tk.Entry(query_frame, textvariable=self.query_var, width=60,
+                               insertbackground="#000000", insertwidth=2)
+        query_entry.grid(row=0, column=1, padx=5, sticky=tk.EW)
         
         # Analyze button
         self.analyze_button = ttk.Button(
@@ -161,12 +172,18 @@ class AgentDebugApp:
             content_frame, 
             wrap=tk.WORD, 
             font=("Consolas", 11),
-            background="#f8f8f8", 
+            background="#f8f8f8",
+            foreground="#000000",
             padx=10,
             pady=10
         )
         self.response_text.pack(fill=tk.BOTH, expand=True)
+        self.response_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         self.response_text.config(state=tk.DISABLED)  # Make it read-only initially
+        
+        # Frame for tool results (Diff views, etc.)
+        self.tool_results_frame = ttk.Frame(content_frame)
+        self.tool_results_frame.pack(fill=tk.BOTH, expand=False, pady=(10, 0))
         
         # Bottom button frame
         button_frame = ttk.Frame(main_frame)
@@ -215,21 +232,29 @@ class AgentDebugApp:
         self.filename = self.file_path_var.get()
         self.query = self.query_var.get()
         
-        if not self.filename or not os.path.exists(self.filename):
-            self.update_response_text("Please select a valid file to analyze.")
-            self.status_var.set("Error: No valid file selected")
+        if (not self.filename or not os.path.exists(self.filename)) and not self.query:
+            self.update_response_text("Please select a file to analyze or enter a query.")
+            self.status_var.set("Error: No file or query provided")
             return
         
-        # Read the code file
+        # Read the code file if provided
         try:
-            with open(self.filename, 'r') as file:
-                self.code = file.read()
+            if self.filename and os.path.exists(self.filename):
+                with open(self.filename, 'r') as file:
+                    self.code = file.read()
+            else:
+                self.code = "" # No code context
+                self.filename = "No File Selected" # Placeholder
             
             # Disable the analyze button during analysis
             self.analyze_button.config(state=tk.DISABLED)
             
             # Start the analysis
             self.start_analysis()
+            
+            # Clear previous tool results
+            for widget in self.tool_results_frame.winfo_children():
+                widget.destroy()
         except Exception as e:
             self.update_response_text(f"Error reading file: {str(e)}\nPlease select a different file.")
             self.status_var.set("Error reading file")
@@ -263,6 +288,18 @@ class AgentDebugApp:
         self.root.clipboard_clear()
         self.root.clipboard_append(self.response_text.get(1.0, tk.END))
         self.status_var.set("Copied to clipboard!")
+        
+    def append_stream_chunk(self, chunk):
+        """Append streamed text to the response area safely in main thread"""
+        def _update():
+            try:
+                self.response_text.config(state=tk.NORMAL)
+                self.response_text.insert(tk.END, chunk)
+                self.response_text.config(state=tk.DISABLED)
+                self.response_text.see(tk.END)
+            except Exception:
+                pass # Ignore errors if window closed
+        self.root.after(0, _update)
     
     def close_app(self):
         """Close the application"""
@@ -280,33 +317,103 @@ class AgentDebugApp:
     def perform_analysis(self):
         """Perform the code analysis and update UI with results"""
         try:
-            # Import modules here inside the function to handle potential import errors
-            import asyncio
-            
-            # Check for API key before attempting to use GeminiClient
+            # Check for API key
             if not self.api_key:
-                raise ValueError("No Gemini API key available. Please set GOOGLE_API_KEY in .env file or environment.")
+                raise ValueError("No OpenAI API key available. Please set OPENAI_API_KEY in .env file or environment.")
             
-            # We'll try to directly use GeminiClient without attempting AgentManager first
+            # Try to use tool-based debugging
             try:
-                from agents.utils.gemini_client import GeminiClient
-                import google.generativeai as genai
+                from agents.mood_agents.base_agent import MoodAgent
+                from agents.mood_agents.happy_agent import HappyAgent
+                from agents.mood_agents.sad_agent import SadAgent
+                from agents.mood_agents.angry_agent import AngryAgent
+                from agents.mood_agents.neutral_agent import NeutralAgent
+                from agents.mood_agents.surprise_agent import SurpriseAgent
                 
-                # Log that we're using direct Gemini analysis
-                print(f"Using direct Gemini analysis for {self.filename}")
-                print(json.dumps({"info": "Using direct Gemini API"}), flush=True)
+                print(f"Using tool-based debugging for {self.filename} with mood: {self.mood}")
                 
-                # Initialize the client - explicitly pass the API key
-                client = GeminiClient(api_key=self.api_key)
+                # Create appropriate mood agent
+                agent_map = {
+                    "happy": HappyAgent,
+                    "sad": SadAgent,
+                    "angry": AngryAgent,
+                    "neutral": NeutralAgent,
+                    "surprise": SurpriseAgent
+                }
                 
-                # Create a new event loop if needed
+                agent_class = agent_map.get(self.mood.lower(), NeutralAgent)
+                agent = agent_class(api_key=self.api_key)
+                
+                # Use tool-based debugging
+                
+                # Define output directory for generated files
+                file_dir = os.path.dirname(os.path.abspath(__file__))
+                root_dir = os.path.dirname(file_dir)
+                generated_dir = os.path.join(root_dir, "generated")
+                
+                # Ensure directory exists
+                if not os.path.exists(generated_dir):
+                    try:
+                        os.makedirs(generated_dir)
+                        print(f"Created generated directory: {generated_dir}")
+                    except Exception as e:
+                        print(f"Error creating generated directory: {str(e)}")
+                
+                # Clear text initially to prepare for streaming
+                self.root.after(0, lambda: self.update_response_text(""))
+                
+                result = agent.debug_code_with_tools(
+                    code=self.code,
+                    filename=self.filename,
+                    user_query=self.query or "Analyze this code and suggest improvements",
+                    output_dir=generated_dir,
+                    stream_callback=self.append_stream_chunk
+                )
+                
+                # Update UI with response
+                if result.get("success"):
+                    response_text = result.get("response", "No response generated")
+                    tool_calls = result.get("tool_calls", [])
+                    
+                    # Update response text
+                    self.root.after(0, lambda: self.status_var.set(f"Analysis complete ({result.get('iterations', 0)} iterations)"))
+                    self.root.after(0, lambda: self.update_response_text(response_text))
+                    
+                    # Display tool execution results
+                    if tool_calls:
+                        self.root.after(0, lambda: self.display_tool_results(tool_calls))
+                    
+                    # Send success result
+                    print(json.dumps({
+                        "status": "complete",
+                        "result": {
+                            "success": True,
+                            "response": response_text,
+                            "tool_calls": len(tool_calls),
+                            "mood": self.mood
+                        }
+                    }), flush=True)
+                else:
+                    error_msg = result.get("error", "Unknown error")
+                    self.root.after(0, lambda: self.status_var.set(f"Error: {error_msg}"))
+                    self.root.after(0, lambda: self.update_response_text(f"Error: {error_msg}"))
+                    
+            except Exception as e:
+                # Fallback to old method if tool method fails
+                error_trace = traceback.format_exc()
+                print(f"Tool-based debugging failed, falling back: {str(e)}\n{error_trace}")
+                
+                from agents.utils.openai_client import OpenAIClient
+                client = OpenAIClient(api_key=self.api_key)
+                
+                # Create event loop
                 try:
                     loop = asyncio.get_event_loop()
                 except RuntimeError:
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
                 
-                # Run the async analyze_code method directly
+                # Run async analysis
                 result = loop.run_until_complete(
                     client.analyze_code(
                         code=self.code,
@@ -316,72 +423,24 @@ class AgentDebugApp:
                     )
                 )
                 
-                # Add raw_response to match the expected output format
-                if "response" in result and "raw_response" not in result:
-                    result["raw_response"] = result["response"]
-                
-                if not result.get("success", False):
-                    result["success"] = True  # Force success if it's not explicitly set
-                
-            except Exception as e:
-                # If even GeminiClient fails, create a basic response
-                error_trace = traceback.format_exc()
-                print(f"Gemini analysis failed: {str(e)}\n{error_trace}")
-                
-                # Create a generic analysis response as fallback
-                result = {
-                    "success": True,
-                    "response": (
-                        f"# Code Analysis ({self.mood.capitalize()} Mood)\n\n"
-                        f"I've analyzed your code with {self.mood} mood in mind.\n\n"
-                        f"Based on my review, your code appears to be structured well. "
-                        f"Without specific details about the implementation, I recommend ensuring "
-                        f"you follow best practices for readability and maintainability.\n\n"
-                        f"For more specific guidance, please consider providing a query about "
-                        f"particular aspects of the code you'd like me to focus on."
-                    ),
-                    "raw_response": (
-                        f"# Code Analysis ({self.mood.capitalize()} Mood)\n\n"
-                        f"I've analyzed your code with {self.mood} mood in mind.\n\n"
-                        f"Based on my review, your code appears to be structured well. "
-                        f"Without specific details about the implementation, I recommend ensuring "
-                        f"you follow best practices for readability and maintainability.\n\n"
-                        f"For more specific guidance, please consider providing a query about "
-                        f"particular aspects of the code you'd like me to focus on."
-                    ),
-                    "mood": self.mood,
-                    "filename": self.filename
-                }
-            
-            # Update UI with response
-            if result["success"]:
-                self.root.after(0, lambda: self.status_var.set("Analysis complete"))
-                # Use raw_response instead of response to show direct Gemini output
-                self.root.after(0, lambda: self.update_response_text(result.get("raw_response", result["response"])))
-                
-                # Send success result back to extension
-                print(json.dumps({
-                    "status": "complete", 
-                    "result": result
-                }), flush=True)
-            else:
-                error_message = result.get("error", "Unknown error")
-                self.root.after(0, lambda: self.status_var.set(f"Error: {error_message}"))
-                # Use raw_response instead of response for errors too
-                self.root.after(0, lambda: self.update_response_text(result.get("raw_response", result["response"])))
-                
-                # Send error result back to extension
-                print(json.dumps({
-                    "status": "error", 
-                    "message": error_message,
-                    "result": result
-                }), flush=True)
+                if result.get("success"):
+                    self.root.after(0, lambda: self.status_var.set("Analysis complete"))
+                    self.root.after(0, lambda: self.update_response_text(result.get("response", "")))
+                    
+                    print(json.dumps({
+                        "status": "complete",
+                        "result": result
+                    }), flush=True)
+                else:
+                    error_msg = result.get("error", "Analysis failed")
+                    self.root.after(0, lambda: self.status_var.set(f"Error: {error_msg}"))
+                    self.root.after(0, lambda: self.update_response_text(result.get("response", error_msg)))
+                    
         except Exception as e:
             error_message = str(e)
             error_trace = traceback.format_exc()
             self.root.after(0, lambda: self.status_var.set("Analysis failed"))
             
-            # Create a helpful error message
             error_response = (
                 f"# Analysis Error\n\n"
                 f"I encountered an error while analyzing your code:\n\n"
@@ -389,12 +448,10 @@ class AgentDebugApp:
                 f"Please check that all dependencies are installed and try again."
             )
             
-            # Update UI with the error message
             self.root.after(0, lambda: self.update_response_text(error_response))
             
-            # Log the error
             print(json.dumps({
-                "status": "error", 
+                "status": "error",
                 "result": {
                     "success": False,
                     "response": "Analysis failed.",
@@ -406,6 +463,69 @@ class AgentDebugApp:
             # Re-enable the analyze button
             if hasattr(self, 'analyze_button') and self.analyze_button is not None:
                 self.root.after(0, lambda: self.analyze_button.config(state=tk.NORMAL))
+    
+    def display_tool_results(self, tool_calls):
+        """Display results of tool executions, including diff views."""
+        for tool_call in tool_calls:
+            tool_name = tool_call["tool"]
+            result = tool_call["result"]
+            
+            if tool_name == "edit_file" and result.get("success"):
+                # Show diff view
+                diff_viewer = DiffViewer(
+                    self.tool_results_frame,
+                    filepath=result["filepath"],
+                    original=result["original_content"],
+                    modified=result["new_content"]
+                )
+                diff_viewer.pack(fill=tk.BOTH, expand=True, pady=10)
+                
+                # Add separator
+                separator = tk.Label(
+                    self.tool_results_frame,
+                    text=f"✅ {result['changes_count']} change(s) made to {os.path.basename(result['filepath'])}",
+                    bg="#1f4d2b",
+                    fg="#6bff6b",
+                    font=("Arial", 10, "bold"),
+                    pady=5
+                )
+                separator.pack(fill=tk.X, pady=5)
+            
+            elif tool_name == "create_file" and result.get("success"):
+                # Show created file notification
+                header = tk.Label(
+                    self.tool_results_frame,
+                    text=f"✨ Created: {result['filepath']} ({result['size']} chars)",
+                    bg="#2b3d4d",
+                    fg="#6bb6ff",
+                    font=("Arial", 10, "bold"),
+                    pady=10
+                )
+                header.pack(fill=tk.X, pady=(10, 0))
+                
+                # Show content
+                content_text = scrolledtext.ScrolledText(
+                    self.tool_results_frame,
+                    height=10,
+                    font=("Consolas", 10),
+                    background="#2d2d2d",
+                    foreground="#d4d4d4"
+                )
+                content_text.pack(fill=tk.X, pady=(0, 10))
+                content_text.insert(tk.END, result["content"])
+                content_text.config(state=tk.DISABLED)
+            
+            elif tool_name == "read_file" and result.get("success"):
+                # Show read file notification
+                read_label = tk.Label(
+                    self.tool_results_frame,
+                    text=f"📖 Read: {result['filepath']} ({result['size']} chars)",
+                    bg="#3d2d4d",
+                    fg="#d6a6ff",
+                    font=("Arial", 9),
+                    pady=3
+                )
+                read_label.pack(fill=tk.X, pady=2)
 
 def main():
     # Parse arguments
