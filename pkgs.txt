@@ -4,11 +4,10 @@ tk
 gitpython 
 diffusers 
 pillow 
-google-generativeai
+openai
 langchain
 langchain-core
 langgraph
-google-generativeai
 pydantic
 python-dotenv
 fastapi
