@@ -4,6 +4,10 @@ import os
 import time
 import traceback
 import subprocess
+import warnings
+
+# Suppress warnings from google.generativeai
+warnings.filterwarnings("ignore", category=FutureWarning)
 
 # First check for critical dependencies and provide installation instructions
 try:
@@ -106,9 +110,10 @@ class Generator(nn.Module):
         return x
 
 class FutureMoodApp:
-    def __init__(self, root, image_path, mood, model_dir=None, output_path=None):
+    def __init__(self, root, image_path, mood, model_dir=None, output_path=None, backend='local'):
         self.root = root
-        self.root.title("MoodLint Future Mood Generator")
+        self.root.title(f"MoodLint Future Mood Generator - {backend.capitalize()}")
+        self.backend = backend
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         
         # Make window appear on top initially
@@ -238,7 +243,157 @@ class FutureMoodApp:
             self.status_var.set(error_msg)
             print(json.dumps({"error": error_msg}), flush=True)
     
+    
     def generate_image(self):
+        if self.backend == 'gemini':
+            self.generate_with_gemini()
+        else:
+            self.generate_with_gan()
+
+    def generate_with_gemini(self):
+        try:
+            self.status_var.set(f"Connecting to Nano-Banana Pro (Gemini) for {self.mood}...")
+            print(json.dumps({"progress": "Initializing Gemini..."}), flush=True)
+            
+            import google.generativeai as genai
+            
+            api_key = os.environ.get("GEMINI_API_KEY")
+            if not api_key:
+                raise ValueError("GEMINI_API_KEY not found in environment variables")
+                
+            genai.configure(api_key=api_key)
+            
+            # Try to use the requested models in order
+            # 1. gemini-3-pro-image-preview
+            # 2. gemini-2.5-flash-image
+            # 3. Fallback to standard
+            
+            models_to_try = [
+                'gemini-3-pro-image-preview', 
+                'gemini-2.5-flash-image',
+                'gemini-1.5-pro'
+            ]
+            
+            model = None
+            for model_name in models_to_try:
+                try:
+                    self.status_var.set(f"Attempting model: {model_name}...")
+                    print(json.dumps({"info": f"Attempting to use model: {model_name}"}), flush=True)
+                    candidate = genai.GenerativeModel(model_name)
+                    # Test if model is valid by accessing a property or just assuming lazy init works
+                    # With google-generativeai, init usually doesn't validate until generation, 
+                    # but we can assume if it throws here it's invalid.
+                    model = candidate
+                    self.status_var.set(f"Using model: {model_name}")
+                    break
+                except Exception as e:
+                    print(json.dumps({"warning": f"Model {model_name} failed: {str(e)}"}), flush=True)
+                    continue
+                
+            if not model:
+                 print(json.dumps({"warning": "All requested models failed, falling back to gemini-pro-vision"}), flush=True)
+                 model = genai.GenerativeModel('gemini-pro-vision') # Last resort
+            
+            self.status_var.set(f"Sending image to Gemini for {self.mood} transformation...")
+            
+            # Load and prepare image
+            pil_image = Image.open(self.image_path)
+            
+            prompt = f"Describe this person's expression if they were feeling very {self.mood}. Provide a detailed visual description of the facial changes."
+            
+            # Generate content
+            response = model.generate_content([prompt, pil_image])
+            
+            # Check for image or text response
+            text_insight = ""
+            generated_image_data = None
+            
+            if response.parts:
+                for part in response.parts:
+                    if hasattr(part, 'text') and part.text:
+                        text_insight += part.text
+                    
+                    if hasattr(part, 'inline_data') and part.inline_data:
+                        generated_image_data = part.inline_data.data
+                        print(json.dumps({"info": "Received image data from Gemini!"}), flush=True)
+
+            if not text_insight:
+                 text_insight = f"Gemini analyzed your {self.mood} mood."
+            
+            print(json.dumps({"info": f"Gemini insight: {text_insight[:100]}..."}), flush=True)
+            
+            if generated_image_data:
+                # Save the generated image directly
+                import io
+                image_stream = io.BytesIO(generated_image_data)
+                generated_img = Image.open(image_stream)
+                generated_img.save(self.output_path)
+                self.display_result()
+            else:
+                # If no image returned, fallback to visual filter
+                self.status_var.set("Applying Nano-Banana visual processing...")
+                self.apply_mood_filter(pil_image, self.mood)
+            
+        except ImportError:
+             self.status_var.set("Error: google-generativeai package not installed")
+             print(json.dumps({"error": "Please install google-generativeai: pip install google-generativeai"}), flush=True)
+        except Exception as e:
+            error_msg = f"Gemini Error: {str(e)}"
+            self.status_var.set(error_msg)
+            print(json.dumps({"error": error_msg}), flush=True)
+            # Fallback to GAN
+            print(json.dumps({"info": "Falling back to local GAN..."}), flush=True)
+            self.generate_with_gan()
+
+    def apply_mood_filter(self, image, mood):
+        # Apply artistic filters based on mood using CV2/PIL
+        try:
+            img_cv = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+            
+            if mood == 'happy':
+                # Warm, bright, slightly saturated
+                img_cv = cv2.convertScaleAbs(img_cv, alpha=1.2, beta=10) # Contrast/Brightness
+                # Yellow tint
+                overlay = np.full(img_cv.shape, (0, 30, 30), dtype='uint8')
+                img_cv = cv2.addWeighted(img_cv, 0.9, overlay, 0.1, 0)
+                
+            elif mood == 'sad':
+                # Cool, desaturated, darker
+                img_cv = cv2.convertScaleAbs(img_cv, alpha=0.9, beta=-10)
+                # Blue tint
+                overlay = np.full(img_cv.shape, (50, 0, 0), dtype='uint8')
+                img_cv = cv2.addWeighted(img_cv, 0.8, overlay, 0.2, 0)
+                
+            elif mood == 'angry':
+                # High contrast, red tint
+                img_cv = cv2.convertScaleAbs(img_cv, alpha=1.3, beta=0)
+                # Red tint
+                overlay = np.full(img_cv.shape, (0, 0, 50), dtype='uint8')
+                img_cv = cv2.addWeighted(img_cv, 0.8, overlay, 0.2, 0)
+            
+            # Save result
+            cv2.imwrite(self.output_path, img_cv)
+            
+            # Display result
+            self.display_result()
+            
+        except Exception as e:
+            raise e
+
+    def display_result(self):
+        if os.path.exists(self.output_path):
+            generated_img = Image.open(self.output_path)
+            generated_img = generated_img.resize((400, 400), Image.LANCZOS)
+            self.generated_image = generated_img
+            self.generated_photo = ImageTk.PhotoImage(generated_img)
+            self.output_canvas.delete("all")
+            self.output_canvas.create_image(200, 200, image=self.generated_photo)
+            self.status_var.set("Future mood visualization complete!")
+            self.progress.stop()
+            self.save_button.config(state=tk.NORMAL)
+            print(json.dumps({"status": "generation_complete", "output_path": self.output_path}), flush=True)
+
+    def generate_with_gan(self):
         try:
             self.status_var.set(f"Generating future mood visualization for '{self.mood}' mood...")
             
@@ -309,30 +464,7 @@ class FutureMoodApp:
             
             # Check if generation was successful
             if process.returncode == 0 and os.path.exists(self.output_path):
-                # Load and display the generated image
-                generated_img = Image.open(self.output_path)
-                generated_img = generated_img.resize((400, 400), Image.LANCZOS)
-                
-                # Update UI with generated image
-                self.generated_image = generated_img
-                self.generated_photo = ImageTk.PhotoImage(generated_img)
-                
-                # Display the generated image
-                self.output_canvas.delete("all")
-                self.output_canvas.create_image(200, 200, image=self.generated_photo)
-                
-                # Update status
-                self.status_var.set("Future mood visualization complete!")
-                self.progress.stop()
-                
-                # Enable save button
-                self.save_button.config(state=tk.NORMAL)
-                
-                # Notify extension that generation is complete
-                print(json.dumps({
-                    "status": "generation_complete",
-                    "output_path": self.output_path
-                }), flush=True)
+                self.display_result()
             else:
                 error_msg = f"Failed to generate image (exit code: {process.returncode})"
                 self.status_var.set(error_msg)
@@ -428,6 +560,7 @@ if __name__ == "__main__":
     image_path = sys.argv[1]
     mood = sys.argv[2]
     output_path = sys.argv[3] if len(sys.argv) > 3 else None
+    backend = sys.argv[4] if len(sys.argv) > 4 else 'local'
     
     try:
         # Create the main window
@@ -441,7 +574,7 @@ if __name__ == "__main__":
             pass  # Fall back to default theme if 'clam' is not available
         
         # Create application
-        app = FutureMoodApp(root, image_path, mood, output_path=output_path)
+        app = FutureMoodApp(root, image_path, mood, output_path=output_path, backend=backend)
         
         # Start the main loop
         root.mainloop()
