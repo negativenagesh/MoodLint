@@ -18,11 +18,11 @@ class AgentManager:
         Initialize the agent manager with all mood agents.
         
         Args:
-            api_key: Gemini API key (will use GOOGLE_API_KEY env var if not provided)
+            api_key: OpenAI API key (will use OPENAI_API_KEY env var if not provided)
         """
-        self.api_key = api_key or os.environ.get("GOOGLE_API_KEY")
+        self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
         if not self.api_key:
-            raise ValueError("Gemini API key is required. Set GOOGLE_API_KEY environment variable.")
+            raise ValueError("OpenAI API key is required. Set OPENAI_API_KEY environment variable.")
         
         # Initialize all agents - now using the same moods as the model: Angry, Happy, Neutral, Surprise, Sad
         self.agents: Dict[str, MoodAgent] = {
