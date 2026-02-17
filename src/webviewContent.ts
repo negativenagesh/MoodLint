@@ -78,6 +78,79 @@ export function getWebviewContent(
             body.vscode-dark .github-corner:hover svg {
                 fill: #58a6ff;
             }
+            
+            /* Model Selection Modal */
+            .modal {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background-color: rgba(0, 0, 0, 0.7);
+                z-index: 2000;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            
+            .modal-content {
+                background-color: var(--section-bg-color, #ffffff);
+                padding: 30px;
+                border-radius: 12px;
+                max-width: 450px;
+                width: 90%;
+                box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            }
+            
+            .modal-content h3 {
+                margin-top: 0;
+                color: var(--primary-color, #333);
+            }
+            
+            .model-options {
+                display: flex;
+                flex-direction: column;
+                gap: 15px;
+                margin: 20px 0;
+            }
+            
+            .model-option-btn {
+                padding: 20px;
+                border: 2px solid var(--border-color, #ddd);
+                border-radius: 8px;
+                background-color: var(--bg-color, #fff);
+                cursor: pointer;
+                text-align: left;
+                transition: all 0.2s;
+            }
+            
+            .model-option-btn:hover {
+                border-color: var(--primary-color, #007acc);
+                background-color: var(--hover-bg-color, #f0f0f0);
+                transform: translateY(-2px);
+                box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            }
+            
+            .model-title {
+                font-size: 16px;
+                font-weight: bold;
+                margin-bottom: 5px;
+            }
+            
+            .model-desc {
+                font-size: 13px;
+                opacity: 0.8;
+            }
+            
+            .secondary-button {
+                margin-top: 10px;
+                width: 100%;
+                padding: 10px;
+                border: 1px solid var(--border-color, #ddd);
+                background-color: transparent;
+                cursor: pointer;
+                border-radius: 4px;
+            }
         </style>
     </head>
     <body>
@@ -120,6 +193,45 @@ export function getWebviewContent(
                             </div>
                         </div>
                     </div>
+                    
+                    <!-- Model Selection Modal -->
+                    <div id="model-selection-modal" class="modal" style="display: none;">
+                        <div class="modal-content">
+                            <h3>Select Mood Detection Model</h3>
+                            <p>Choose which model to use for detecting your mood:</p>
+                            <div class="model-options">
+                                <button id="local-model-btn" class="model-option-btn">
+                                    <div class="model-title">Local Model</div>
+                                    <div class="model-desc">Use PyTorch-based local mood detection</div>
+                                </button>
+                                <button id="openai-model-btn" class="model-option-btn">
+                                    <div class="model-title">OpenAI GPT-4o</div>
+                                    <div class="model-desc">Use GPT-4o Vision API for mood detection</div>
+                                </button>
+                            </div>
+                            <button id="cancel-model-btn" class="secondary-button">Cancel</button>
+                        </div>
+                    </div>
+
+                    <!-- Future Mood Model Selection Modal -->
+                    <div id="future-mood-model-modal" class="modal" style="display: none;">
+                        <div class="modal-content">
+                            <h3>Select Generation Model</h3>
+                            <p>Choose how to generate your future mood:</p>
+                            <div class="model-options">
+                                <button id="gan-model-btn" class="model-option-btn">
+                                    <div class="model-title">Local GAN Model</div>
+                                    <div class="model-desc">Use local Generative Adversarial Network</div>
+                                </button>
+                                <button id="gemini-model-btn" class="model-option-btn">
+                                    <div class="model-title">Nano-Banana Pro</div>
+                                    <div class="model-desc">Use Gemini API (High Quality)</div>
+                                </button>
+                            </div>
+                            <button id="cancel-future-model-btn" class="secondary-button">Cancel</button>
+                        </div>
+                    </div>
+                    
                     <div class="button-container">
                         <button id="enable-camera-btn" class="primary-button">Go with mood debug</button>
                         <button id="analyze-btn" class="primary-button" disabled>Start Debugging</button>
