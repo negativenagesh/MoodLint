@@ -26,7 +26,11 @@ except ImportError:
 print(json.dumps({"status": "starting", "gui": "initializing"}), flush=True)
 
 class CameraApp:
-    def __init__(self, root=None, headless=False):
+    def __init__(self, root=None, headless=False, model_type="local"):
+        # Store model type
+        self.model_type = model_type
+        print(json.dumps({"info": f"Initializing camera with model type: {model_type}"}), flush=True)
+        
         # Create images directory if it doesn't exist
         self.image_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "images")
         os.makedirs(self.image_dir, exist_ok=True)
@@ -238,6 +242,64 @@ class CameraApp:
             moods = ["Neutral", "Sad", "Angry", "Happy", "Surprise"]
             return random.choice(moods), 0.6 + random.random() * 0.3
         
+    def detect_mood_with_openai(self, image_path):
+        """Use OpenAI GPT-4o vision API to detect mood from image"""
+        try:
+            import base64
+            import urllib.request
+            import urllib.error
+            
+            api_key = os.environ.get("OPENAI_API_KEY")
+            if not api_key:
+                print(json.dumps({"error": "No OPENAI_API_KEY found in environment"}), flush=True)
+                return random.choice(["Neutral", "Sad", "Angry", "Surprise"]), 0.7
+            
+            with open(image_path, "rb") as image_file:
+                base64_image = base64.b64encode(image_file.read()).decode('utf-8')
+            
+            url = "https://api.openai.com/v1/chat/completions"
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}"
+            }
+            
+            data = json.dumps({
+                "model": "gpt-4o",
+                "messages": [{
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Analyze the person's facial expression in this image and determine their emotional mood. Choose ONE from: Happy, Sad, Angry, Neutral, Surprise. Respond ONLY with JSON: {'mood': 'Happy', 'confidence': 0.85}"},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                    ]
+                }],
+                "max_tokens": 100
+            }).encode('utf-8')
+            
+            req = urllib.request.Request(url, data=data, headers=headers)
+            print(json.dumps({"info": "Calling OpenAI GPT-4o Vision API..."}), flush=True)
+            
+            with urllib.request.urlopen(req, timeout=30) as response:
+                result = json.loads(response.read().decode('utf-8'))
+                content = result.get('choices', [{}])[0].get('message', {}).get('content', '')
+                print(json.dumps({"debug": f"OpenAI response: {content}"}), flush=True)
+                
+                try:
+                    mood_data = json.loads(content)
+                    mood = mood_data.get('mood', 'Neutral')
+                    confidence = mood_data.get('confidence', 0.8)
+                    print(json.dumps({"info": f"OpenAI detected mood: {mood} ({confidence})"}), flush=True)
+                    return mood, confidence
+                except json.JSONDecodeError:
+                    for mood in ["Happy", "Sad", "Angry", "Neutral", "Surprise"]:
+                        if mood.lower() in content.lower():
+                            return mood, 0.8
+                    return "Neutral", 0.7
+                    
+        except Exception as e:
+            print(json.dumps({"error": f"OpenAI error: {str(e)}"}), flush=True)
+            print(json.dumps({"trace": traceback.format_exc()}), flush=True)
+            return random.choice(["Neutral", "Sad", "Angry", "Surprise"]), 0.7
+    
     def capture_image(self, event=None):
         """Capture and save the current camera frame and detect mood"""
         if not self.camera_active:
@@ -284,9 +346,13 @@ class CameraApp:
                     
                 print(json.dumps({"status": "image_captured", "filepath": filepath}), flush=True)
                     
-                # Detect mood from the captured image
-                print(json.dumps({"status": "running_inference"}), flush=True)
-                mood, confidence = self.detect_mood(filepath)
+                # Detect mood from the captured image using selected model
+                print(json.dumps({"status": "running_inference", "model_type": self.model_type}), flush=True)
+                
+                if self.model_type == "openai":
+                    mood, confidence = self.detect_mood_with_openai(filepath)
+                else:
+                    mood, confidence = self.detect_mood(filepath)
                     
                 if mood:
                     # Successfully detected mood
@@ -553,8 +619,11 @@ class CameraApp:
         sys.exit(0)
 
 if __name__ == "__main__":
-    # Accept optional parameter for session ID
+    # Accept parameters: session_id and model_type
     session_id = sys.argv[1] if len(sys.argv) > 1 else "default"
+    model_type = sys.argv[2] if len(sys.argv) > 2 else "local"  # Default to local model
+    
+    print(json.dumps({"info": f"Starting camera app with session: {session_id}, model: {model_type}"}), flush=True)
     
     try:
         # Try to use tkinter if available
@@ -569,14 +638,14 @@ if __name__ == "__main__":
             except:
                 pass  # Fall back to default theme if 'clam' is not available
             
-            # Create application
-            app = CameraApp(root)
+            # Create application with model type
+            app = CameraApp(root, model_type=model_type)
             
             # Start the main loop
             root.mainloop()
         else:
             # Fall back to OpenCV window if no tkinter
-            app = CameraApp(headless=True)
+            app = CameraApp(headless=True, model_type=model_type)
     except Exception as e:
         print(json.dumps({"error": f"Critical error: {str(e)}"}), flush=True)
         traceback_str = traceback.format_exc()
