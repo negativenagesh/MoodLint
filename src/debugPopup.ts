@@ -70,6 +70,7 @@ export function createDebugResultsPopup(
                 border-radius: 8px;
                 overflow-x: auto;
                 line-height: 1.5;
+                color: #000000;
             }
             .code-block {
                 background-color: rgba(0,0,0,0.1);
@@ -78,6 +79,7 @@ export function createDebugResultsPopup(
                 margin: 10px 0;
                 white-space: pre-wrap;
                 font-family: monospace;
+                color: #000000;
             }
             .mood-badge {
                 display: inline-block;
