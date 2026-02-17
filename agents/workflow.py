@@ -15,7 +15,7 @@ from langgraph.graph import StateGraph
 from langchain_core.messages import HumanMessage, AIMessage
 from pydantic import BaseModel, Field
 from .agent_manager import AgentManager
-from .utils.gemini_client import GeminiClient
+from .utils.openai_client import OpenAIClient
 
 class DebugRequest(BaseModel):
     code: str = Field(..., description="Source code to debug")
@@ -28,7 +28,7 @@ class DebugResponse(BaseModel):
     mood: str = Field(..., description="The mood used for debugging")
     response: Optional[str] = Field(None, description="The debugging response")
     error: Optional[str] = Field(None, description="Error message if any")
-    raw_response: Optional[str] = Field(None, description="Raw response from Gemini API")
+    raw_response: Optional[str] = Field(None, description="Raw response from OpenAI API")
 
 def create_workflow():
     """
@@ -38,9 +38,9 @@ def create_workflow():
         The configured workflow or None if creation fails
     """
     try:
-        api_key = os.environ.get("GOOGLE_API_KEY")
+        api_key = os.environ.get("OPENAI_API_KEY")
         if not api_key:
-            print("ERROR: GOOGLE_API_KEY environment variable is not set.")
+            print("ERROR: OPENAI_API_KEY environment variable is not set.")
             return None
         
         agent_manager = AgentManager()
@@ -104,18 +104,18 @@ def create_workflow():
                     if not isinstance(result, dict):
                         raise ValueError(f"Expected dict result, got {type(result).__name__}")
                     
-                    # Get direct raw response from Gemini API if available
-                    raw_gemini_response = None
+                    # Get direct raw response from OpenAI API if available
+                    raw_openai_response = None
                     if "raw_response" in result and result["raw_response"]:
-                        raw_gemini_response = result["raw_response"]
-                        print(f"Found raw_response in agent result, length: {len(raw_gemini_response)}")
-                    elif "gemini_response" in result and result["gemini_response"]:
-                        raw_gemini_response = result["gemini_response"]
-                        print(f"Found gemini_response in agent result, length: {len(raw_gemini_response)}")
+                        raw_openai_response = result["raw_response"]
+                        print(f"Found raw_response in agent result, length: {len(raw_openai_response)}")
+                    elif "openai_response" in result and result["openai_response"]:
+                        raw_openai_response = result["openai_response"]
+                        print(f"Found openai_response in agent result, length: {len(raw_openai_response)}")
                     elif "response" in result and isinstance(result["response"], str) and len(result["response"]) > 100:
                         # If response is substantial, save it as raw_response too (backup approach)
-                        raw_gemini_response = result["response"]
-                        print(f"Using substantial response as raw_gemini_response, length: {len(raw_gemini_response)}")
+                        raw_openai_response = result["response"]
+                        print(f"Using substantial response as raw_openai_response, length: {len(raw_openai_response)}")
                     
                     # Enhanced results structure with raw response preservation
                     enhanced_result = {
@@ -123,17 +123,17 @@ def create_workflow():
                         "mood": result.get("mood", mood),
                         "error": result.get("error", None),
                         "query": query,
-                        "raw_response": raw_gemini_response
+                        "raw_response": raw_openai_response
                     }
                     
                     # Ensure we have a response, prioritizing meaningful content
                     if "response" in result and result["response"] and len(result["response"]) > 100:
                         enhanced_result["response"] = result["response"]
                         print(f"Using direct response from result, length: {len(enhanced_result['response'])}")
-                    elif raw_gemini_response:
+                    elif raw_openai_response:
                         # Use raw response if available but no formatted response
-                        enhanced_result["response"] = raw_gemini_response
-                        print(f"Using raw_gemini_response as primary response")
+                        enhanced_result["response"] = raw_openai_response
+                        print(f"Using raw_openai_response as primary response")
                     elif "analysis" in result and result["analysis"]:
                         enhanced_result["response"] = f"Analysis of {filename}:\n\n{result['analysis']}"
                         print(f"Using analysis from result, transformed to response")
@@ -146,7 +146,7 @@ def create_workflow():
                         print(f"Created fallback response due to missing response")
                     
                     # Return the enhanced result, preserving both raw and formatted responses
-                    return {**state, "result": enhanced_result, "raw_response": raw_gemini_response}
+                    return {**state, "result": enhanced_result, "raw_response": raw_openai_response}
                     
                 except Exception as agent_error:
                     print(f"Agent execution error: {str(agent_error)}")
@@ -389,13 +389,13 @@ async def debug_code(
     """
     try:
         # Verify API key is available
-        api_key = os.environ.get("GOOGLE_API_KEY")
+        api_key = os.environ.get("OPENAI_API_KEY")
         if not api_key:
             return {
                 "success": False,
-                "error": "GOOGLE_API_KEY environment variable is not set",
+                "error": "OPENAI_API_KEY environment variable is not set",
                 "mood": mood,
-                "response": "I couldn't analyze your code because the Google API key is missing. Please set the GOOGLE_API_KEY environment variable."
+                "response": "I couldn't analyze your code because the OpenAI API key is missing. Please set the OPENAI_API_KEY environment variable."
             }
         
         print(f"Using API key: {api_key[:4]}...{api_key[-4:]} (length: {len(api_key)})")
