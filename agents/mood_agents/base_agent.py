@@ -1,6 +1,6 @@
 from typing import Dict, Any, List, Optional
 from langchain_core.prompts import ChatPromptTemplate
-from ..utils.gemini_client import GeminiClient
+from ..utils.openai_client import OpenAIClient
 from ..utils.code_analyzer import CodeAnalyzer
 
 class MoodAgent:
@@ -18,11 +18,11 @@ class MoodAgent:
         Args:
             mood: The mood this agent specializes in
             temperature: Creativity level for the model (0.0-1.0)
-            api_key: Optional Gemini API key
+            api_key: Optional OpenAI API key
         """
         self.mood = mood
         self.temperature = temperature
-        self.gemini_client = GeminiClient(api_key)
+        self.openai_client = OpenAIClient(api_key)
         self.code_analyzer = CodeAnalyzer()
         
         # Base system instructions that all agents will have
@@ -81,14 +81,70 @@ class MoodAgent:
         Focus on the most important issues first. Be specific with line numbers and clear explanations.
         """
         
-        # Get response from Gemini
-        response = self.gemini_client.generate_response(
+        # Get response from OpenAI
+        response = self.openai_client.generate_response(
             prompt=prompt,
             temperature=self.temperature,
             system_instruction=system_instruction
         )
         
         return response
+    
+    def debug_code_with_tools(self, code: str, filename: str, user_query: str = "", output_dir: str = None, stream_callback=None) -> Dict[str, Any]:
+        """
+        Debug code using tools (read/edit/create files).
+        """
+        from ..utils.tools import ToolRegistry
+        
+        # Analyze code first (optional, but helpful context)
+        analysis_context = ""
+        if code:
+            analysis = self.analyze_code(code, filename)
+            analysis_context = self._format_analysis_for_prompt(analysis)
+            
+        system_instruction = self.get_system_instruction()
+        
+        # Create a detailed prompt that encourages tool usage
+        prompt = f"""
+        # Context
+        User Mood: {self.mood.upper()}
+        Filename: {filename}
+        
+        # User Query
+        {user_query}
+        
+        # Code Content
+        ```
+        {code if code else "(No content provided)"}
+        ```
+        
+        {f"# Analysis Results{chr(10)}{analysis_context}" if analysis_context else ""}
+        
+        You have access to tools to READ, EDIT, and CREATE files.
+        - If the user asks to create a file, use `create_file`.
+        - If the user asks to fix code, use `edit_file`.
+        - If you need more context, use `read_file`.
+        
+        IMPORTANT:
+        {f"- When creating new files, ALWAYS save them to this directory: {output_dir}" if output_dir else ""}
+        - If no path is specified by the user, assume the file should be created in the directory above.
+        
+        Provide a helpful response that addresses the user's needs while maintaining the {self.mood} persona.
+        """
+        
+        # Get tools definition
+        tools = ToolRegistry.get_tool_definitions()
+        
+        # Execute with tools
+        result = self.openai_client.generate_response_with_tools(
+            prompt=prompt,
+            tools=tools,
+            system_instruction=system_instruction,
+            max_iterations=10,
+            stream_callback=stream_callback
+        )
+        
+        return result
     
     def _format_analysis_for_prompt(self, analysis: Dict[str, Any]) -> str:
         """Format code analysis results for inclusion in the prompt."""
