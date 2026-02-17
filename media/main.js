@@ -13,6 +13,7 @@
 
     let externalCameraActive = false;
     let currentMood = null;
+    let futureMood = null;
     let moodConfidence = 0;
 
     const vscode = acquireVsCodeApi();
@@ -52,22 +53,45 @@
         });
     }
 
-    function toggleExternalCamera() {
+     function toggleExternalCamera() {
         if (externalCameraActive) {
             disableExternalCamera();
         } else {
-            enableExternalCamera();
+            showModelSelectionModal();
         }
     }
 
-    function enableExternalCamera() {
-        console.log('[Webview] Requesting external camera...');
+    function showModelSelectionModal() {
+        const modal = document.getElementById('model-selection-modal');
+        modal.style.display = 'flex';
+        
+        // Set up event listeners for modal buttons
+        document.getElementById('local-model-btn').onclick = () => {
+            modal.style.display = 'none';
+            enableExternalCamera('local');
+        };
+        
+        document.getElementById('openai-model-btn').onclick = () => {
+            modal.style.display = 'none';
+            enableExternalCamera('openai');
+        };
+        
+        document.getElementById('cancel-model-btn').onclick = () => {
+            modal.style.display = 'none';
+        };
+    }
+
+    function enableExternalCamera(modelType) {
+        console.log(`[Webview] Requesting external camera with model: ${modelType}...`);
         updateStatus('busy', 'Launching external camera...');
         enableCameraBtn.disabled = true;
         enableCameraBtn.textContent = 'Launching...';
 
-        // Send the command to start the external camera app
-        vscode.postMessage({ command: 'startExternalCamera' });
+        // Send the command to start the external camera app with model type
+        vscode.postMessage({ 
+            command: 'startExternalCamera',
+            modelType: modelType
+        });
     }
 
     function handleExternalCameraStarted() {
@@ -156,9 +180,12 @@
     }
 
     function generateFutureMood() {
-        if (!currentMood) {
-            console.log('[Webview] No mood detected, cannot generate future mood');
-            updateStatus('error', 'Please detect your mood first');
+        // Use predicted future mood if available, otherwise fallback to current mood
+        const targetMood = futureMood || currentMood;
+        
+        if (!targetMood) {
+            console.log('[Webview] No mood detected or predicted, cannot generate future mood');
+            updateStatus('error', 'Please detect your mood or predict future mood first');
             return;
         }
         
@@ -169,12 +196,39 @@
             return;
         }
         
-        console.log(`[Webview] Generating future mood for: ${currentMood}`);
-        updateStatus('busy', `Launching future mood generation for ${currentMood}...`);
+        // Show the model selection modal
+        showFutureMoodModal(targetMood);
+    }
+
+    function showFutureMoodModal(targetMood) {
+        const modal = document.getElementById('future-mood-model-modal');
+        modal.style.display = 'flex';
+        
+        // Set up event listeners for modal buttons
+        document.getElementById('gan-model-btn').onclick = () => {
+            modal.style.display = 'none';
+            triggerFutureMoodGeneration(targetMood, 'local');
+        };
+        
+        document.getElementById('gemini-model-btn').onclick = () => {
+            modal.style.display = 'none';
+            triggerFutureMoodGeneration(targetMood, 'gemini');
+        };
+        
+        document.getElementById('cancel-future-model-btn').onclick = () => {
+            modal.style.display = 'none';
+        };
+    }
+
+    function triggerFutureMoodGeneration(targetMood, backend) {
+        console.log(`[Webview] Generating future mood for: ${targetMood} using ${backend}`);
+        const backendName = backend === 'gemini' ? 'Nano-Banana Pro' : 'Local GAN';
+        updateStatus('busy', `Launching ${backendName} for ${targetMood}...`);
         
         vscode.postMessage({
             command: 'generateFutureMood',
-            currentMood: currentMood
+            currentMood: targetMood,
+            backend: backend
         });
     }
 
@@ -185,6 +239,10 @@
         }
         
         updateStatus('ready', message.message || `Your future mood: ${message.mood}`);
+        
+        // Store the predicted mood
+        futureMood = message.mood;
+        console.log(`[Webview] Stored future mood: ${futureMood}`);
         
         // Display the prediction in a visual way
         const moodDisplay = document.getElementById('current-mood-display');
